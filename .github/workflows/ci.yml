@@ -1,11 +1,12 @@
-# The gate. Two tiers, because they answer different questions.
+# The gate. Two runners over one set of test bodies, because they answer
+# different questions.
 #
-# Tier 1 is the contract suite over a fake `MediaDevices` in node: fast, exact,
-# and able to script things no real browser will do (a device that vanishes
-# *during* an in-flight `getUserMedia`). Tier 2 runs **the same test bodies**
-# against real chromium, firefox and webkit — a tier-1 pass that fails tier 2
-# is a bug in our model of the browser, and that is the only thing that finds
-# it.
+# The node run drives the contract suite over a fake `MediaDevices`: fast,
+# exact, and able to script things no real browser will do (a device that
+# vanishes *during* an in-flight `getUserMedia`). The browser run puts **the
+# same bodies** in front of real chromium, firefox and webkit — a node pass
+# that fails in a browser is a bug in our model of the browser, and that is
+# the only thing that finds it.
 #
 # The engines are a matrix rather than one job because `playwright install`
 # pulls a browser per shard; installing all three everywhere triples the
@@ -27,7 +28,7 @@ concurrency:
 
 jobs:
   build:
-    name: typecheck, lint, build, tier 1
+    name: typecheck, lint, build, unit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -53,23 +54,40 @@ jobs:
       - name: build
         run: pnpm build
 
-      - name: no Daily, no remotely-loaded code
-        # The reason this package exists, asserted against the artifact
-        # consumers actually get rather than against the source. `eval` and
-        # `new Function` are what `@daily-co/daily-js` does with the JavaScript
-        # it fetches at runtime; neither belongs in a media manager.
+      - name: no remotely-loaded code
+        # Asserted against the artifact consumers actually get, not the source:
+        # dist must import nothing but the two declared peer dependencies, and
+        # must never reach for the code evaluators. Comments are stripped
+        # first — a doc block that happens to contain `from "..."` is not an
+        # import, and one of ours does.
         run: |
-          set -euo pipefail
-          for f in dist/index.js dist/index.cjs; do
-            test -f "$f" || { echo "::error::$f missing"; exit 1; }
-            if grep -qi 'daily' "$f"; then
-              echo "::error::$f mentions daily"; exit 1
-            fi
-            if grep -qE 'eval\(|new Function\(' "$f"; then
-              echo "::error::$f evaluates code at runtime"; exit 1
-            fi
-          done
-          echo "dist is clean"
+          node --input-type=module -e '
+            import { readFileSync } from "node:fs";
+            const allowed = new Set([
+              "@pipecat-ai/client-js",
+              "@pipecat-ai/small-webrtc-transport",
+            ]);
+            let bad = false;
+            for (const file of ["dist/index.js", "dist/index.cjs"]) {
+              const source = readFileSync(file, "utf8")
+                .replace(/\/\*[\s\S]*?\*\//g, "")
+                .replace(/^\s*\/\/.*$/gm, "");
+              for (const [, id] of source.matchAll(
+                /(?:\bfrom|\brequire\()\s*["\x27]([^"\x27]+)["\x27]/g
+              )) {
+                if (!allowed.has(id)) {
+                  console.log(`::error::${file} imports ${id}`);
+                  bad = true;
+                }
+              }
+              if (/\beval\(|new Function\(/.test(source)) {
+                console.log(`::error::${file} evaluates code at runtime`);
+                bad = true;
+              }
+            }
+            if (bad) process.exit(1);
+            console.log("dist imports only its peer dependencies");
+          '
 
       - name: package contents
         # `files` has been wrong in other repos before, and dist/ is
@@ -83,11 +101,11 @@ jobs:
           test -f dist/index.d.ts
           test -f dist/index.d.cts
 
-      - name: tier 1 — contract suite over the fake platform
+      - name: contract suite over the fake platform
         run: pnpm test:unit
 
   browsers:
-    name: tier 2 — ${{ matrix.engine }}
+    name: browser — ${{ matrix.engine }}
     runs-on: ubuntu-latest
     needs: build
     strategy:
@@ -106,7 +124,7 @@ jobs:
       - name: install ${{ matrix.engine }}
         run: pnpm exec playwright install --with-deps ${{ matrix.engine }}
 
-      - name: tier 2 — the same contract bodies, in a real engine
+      - name: the same contract bodies, in a real engine
         # `playwright.config.ts` starts its own Vite dev server, which also
         # mounts the controllable UDP relay the network suite drives. It binds
         # 127.0.0.1 and never `localhost`: Firefox gathers zero ICE candidates

@@ -1,29 +1,21 @@
 # @voqalize/client-transport
 
 Local media for [pipecat](https://github.com/pipecat-ai/pipecat)'s
-`SmallWebRTCTransport`, without Daily.
+`SmallWebRTCTransport`.
 
 [![CI](https://github.com/voqalize/voqalize-client-transport/actions/workflows/ci.yml/badge.svg)](https://github.com/voqalize/voqalize-client-transport/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@voqalize/client-transport.svg)](https://www.npmjs.com/package/@voqalize/client-transport)
 [![license](https://img.shields.io/npm/l/@voqalize/client-transport.svg)](./LICENSE)
 
-`SmallWebRTCTransport` does not run on Daily's infrastructure — it talks to your
-own pipecat server over plain WebRTC. But its default `MediaManager` is
-`DailyMediaManager`, so installing it pulls in `@daily-co/daily-js`, and that
-package fetches JavaScript from `daily.co` at runtime and evaluates it. You get
-a third-party origin in your media path, a `Content-Security-Policy` you cannot
-write, and a proprietary dependency, in exchange for a microphone.
-
-This package replaces that one class. It uses `navigator.mediaDevices` and
-nothing else: no room engine, no remote code, no vendor.
+`SmallWebRTCTransport` ships with a proprietary `MediaManager` as its default;
+this is an open implementation of the same `MediaManager` protocol, built on
+`navigator.mediaDevices` alone.
 
 ```bash
 npm install @voqalize/client-transport
 ```
 
 ## Use it
-
-Three lines, in the place you build your transport today.
 
 ```ts
 import { PipecatClient } from "@pipecat-ai/client-js";
@@ -68,31 +60,19 @@ it applies the current sink and re-applies it on every later change:
 
 ```ts
 const detach = transport.voqalizeMedia.bindOutputElement(audioEl);
-// on unmount
-detach();
+detach(); // on unmount
 ```
 
 **Blocked autoplay.** A browser that has not seen a user gesture refuses to
 play the bot's audio, silently. The manager detects the refusal, reports it
-through `media.onPlaybackBlocked`, and retries every bound element from a real
-click:
-
-```tsx
-{
-  blocked && (
-    <button onClick={() => transport.voqalizeMedia.resumePlayback()}>
-      Tap to hear the assistant
-    </button>
-  );
-}
-```
+through `media.onPlaybackBlocked`, and `resumePlayback()` retries every bound
+element from inside a real click.
 
 ### If you build your transport somewhere else
 
 Use the manager directly — but wire it, or mid-call device switches will never
 reach the peer connection. This is not optional; see
-[the injection seam](docs/DESIGN.md#the-injection-seam) for why pipecat leaves
-that half undone for any manager but its own.
+[the injection seam](docs/DESIGN.md#the-injection-seam).
 
 ```ts
 import { VoqalizeMediaManager, attachTrackChangedHandler } from "@voqalize/client-transport";
@@ -108,12 +88,11 @@ attachTrackChangedHandler(transport, mediaManager);
   `track.clone()`; the manager owns the capture track. pipecat stops sender
   tracks when it rebuilds a peer connection, and it rebuilds one on every
   reconnect — without this, reconnecting kills the microphone.
-- **Republishes a clone that was stopped underneath it.** Publishing a clone
-  turns out to be necessary and not sufficient, and the failure is silent:
-  `connected`, three m-lines, capture `live`, and `packetsSent: 0` forever.
+- **Republishes a clone that was stopped underneath it.** The failure is
+  silent: `connected`, three m-lines, capture `live`, `packetsSent: 0` forever.
   [The measurement, and why the fix has to be a poll](docs/FINDINGS.md#every-reconnect-left-the-call-connected-and-silent).
-- **Fixes the SDP shape.** Three `sendonly` transceivers — mic, camera, screen —
-  created before the first offer. Starting a screen share mid-call adds no
+- **Fixes the SDP shape.** Three `sendonly` transceivers — mic, camera, screen
+  — created before the first offer. Starting a screen share mid-call adds no
   m-line and triggers no renegotiation.
 - **Tunes each lane for what it carries.** Speech at 32 kbps on the mic;
   `maintain-framerate` on the camera; `maintain-resolution` at 1080p and 5 fps
@@ -137,33 +116,25 @@ attachTrackChangedHandler(transport, mediaManager);
   through an `AudioContext` opens an output device and sits in the AEC path.
   `userStartedSpeaking()` and `bufferBotAudio()` are inert here; VAD belongs on
   the server.
-- **No transport of its own.** This is pipecat's `SmallWebRTCTransport`, not a
-  fork of it. Signalling, ICE, reconnection and renegotiation are all still
-  pipecat's.
+- **No transport of its own.** Signalling, ICE, reconnection and renegotiation
+  are all still pipecat's.
 
 ## Requirements
 
-|                                       |                                                              |
-| ------------------------------------- | ------------------------------------------------------------ |
-| `@pipecat-ai/client-js`               | `>=1.13.0 <2` (peer)                                         |
-| `@pipecat-ai/small-webrtc-transport`  | `>=1.10.0 <2` (peer)                                         |
-| Browsers                              | Chromium, Firefox and WebKit/Safari, all tested every commit |
-| Node (for the build and tier‑1 tests) | 20+                                                          |
+|                                      |                                                              |
+| ------------------------------------ | ------------------------------------------------------------ |
+| `@pipecat-ai/client-js`              | `>=1.13.0 <2` (peer)                                         |
+| `@pipecat-ai/small-webrtc-transport` | `>=1.10.0 <2` (peer)                                         |
+| Browsers                             | Chromium, Firefox and WebKit/Safari, all tested every commit |
+| Node (build and unit tests)          | 20+                                                          |
 
 Both pipecat packages are peer dependencies and are never bundled — a second
 copy in your tree would break `instanceof DeviceError`.
 
-## Documentation
+## More
 
-- **[docs/DESIGN.md](docs/DESIGN.md)** — the ten decisions the implementation
-  turns on, and the injection seam that made a factory necessary.
-- **[docs/FINDINGS.md](docs/FINDINGS.md)** — what was measured rather than
-  assumed: the silent-reconnect defect, the per-engine capability table, the
-  encoder parameters each engine keeps and drops.
-- **[docs/TESTING.md](docs/TESTING.md)** — one contract suite, two harnesses,
-  and the UDP relay that breaks the network under a live call.
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** — how to run it all locally.
-
-## License
+[docs/DESIGN.md](docs/DESIGN.md) — the decisions the implementation turns on.
+[docs/FINDINGS.md](docs/FINDINGS.md) — what was measured rather than assumed.
+[CONTRIBUTING.md](CONTRIBUTING.md) — running the suites locally.
 
 MIT © Voqalize. See [LICENSE](./LICENSE).

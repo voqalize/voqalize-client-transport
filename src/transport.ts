@@ -1,6 +1,6 @@
 /**
  * `createVoqalizeTransport()` — stock `SmallWebRTCTransport`, with our media
- * manager in place of Daily's.
+ * manager in place of the default one.
  *
  * ## Why a factory and not a subclass
  *
@@ -14,18 +14,17 @@
  * the shipped build:
  *
  * 1. **The abstract `MediaManager` base is not exported.** Only
- *    `WavMediaManager` and `DailyMediaManager` are. There is no class to
+ *    `WavMediaManager` and the default manager are. There is no class to
  *    extend and no type to name, so `VoqalizeMediaManager` implements the
  *    shape (`MediaManagerSurface`) and this factory performs exactly one cast.
  *    That cast is safe for a structural reason, not a hopeful one: every
  *    member the transport calls on `this.mediaManager` is a public member of
  *    the abstract base, and `MediaManagerSurface` lists all of them.
  *
- * 2. **The track-changed callback is a `DailyMediaManager` constructor
- *    argument, not a base-class method.** The transport passes its
- *    `replaceTrack` closure into `new DailyMediaManager(..., onTrackStarted,
- *    onTrackStopped)` *in the `||` branch it never reaches when you supply
- *    your own manager*. There is no `setLocalTrackChangedHandler` on the base
+ * 2. **The track-changed callback is a constructor argument of the default
+ *    manager, not a base-class method.** The transport passes its
+ *    `replaceTrack` closure into that constructor *in the `||` branch it
+ *    never reaches when you supply your own manager*. There is no `setLocalTrackChangedHandler` on the base
  *    for an injected manager to receive it through. Inject a manager and say
  *    nothing else, and the peer connection is wired **once**, at
  *    `addUserMedia()` time: every later device switch — a headset unplugged
@@ -35,7 +34,7 @@
  *
  * So the factory does the second half itself: it subscribes to the manager's
  * own `setLocalTrackChangedHandler` and performs the `replaceTrack` the stock
- * transport would have performed for Daily. Same behaviour, same lane mapping,
+ * transport performs for its own default. Same behaviour, same lane mapping,
  * no fork of pipecat.
  */
 
@@ -97,8 +96,7 @@ export interface VoqalizeTransport extends SmallWebRTCTransport {
 
 /**
  * Build a `SmallWebRTCTransport` whose local media is owned by
- * `VoqalizeMediaManager` — no `@daily-co/daily-js`, and no script fetched from
- * a third-party origin at runtime.
+ * `VoqalizeMediaManager`, over `navigator.mediaDevices` alone.
  *
  * ```ts
  * import { PipecatClient } from "@pipecat-ai/client-js";
@@ -140,7 +138,7 @@ export function createVoqalizeTransport(options: VoqalizeTransportOptions = {}):
 
 /**
  * Wire the manager's track changes to the transport's senders — the half of
- * the injection the stock transport only performs for `DailyMediaManager`.
+ * the injection the stock transport only performs for its own default.
  *
  * Exported because an app that has already built a `SmallWebRTCTransport` some
  * other way (a framework wrapper, an existing factory of its own) still needs

@@ -2,7 +2,7 @@
  * VoqalizeMediaManager — microphone, camera and screen share (SPEC.md phases 1–2).
  *
  * A `MediaManager` for pipecat's `SmallWebRTCTransport` that owns browser
- * capture and nothing else: no room engine, no remote code, no Daily. The
+ * capture and nothing else: no room engine and no remotely-loaded code. The
  * abstract base is not exported by `@pipecat-ai/small-webrtc-transport`
  * (SPEC.md § Ground truth), so this is a standalone class that satisfies the
  * base's *public* surface structurally — `MediaManagerSurface` in

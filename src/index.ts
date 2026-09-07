@@ -1,10 +1,11 @@
 /**
- * `@voqalize/client-transport` — local media for pipecat, without Daily.
+ * `@voqalize/client-transport` — local media for pipecat's
+ * `SmallWebRTCTransport`, over `navigator.mediaDevices` alone.
  *
  * Two entry points, and most applications need only the first:
  *
  *   `createVoqalizeTransport()` — a stock `SmallWebRTCTransport` with our
- *   media manager in place of `DailyMediaManager`, fully wired. Drop it where
+ *   media manager in place of the default one, fully wired. Drop it where
  *   you build your transport today and nothing else in your app changes.
  *
  *   `VoqalizeMediaManager` — the manager on its own, for a codebase that

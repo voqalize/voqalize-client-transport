@@ -9,8 +9,8 @@
  *
  * The claim under test is narrow and load-bearing: an injected media manager
  * receives **no** track-changed wiring from stock pipecat 1.10.x, because the
- * transport passes that callback into the `DailyMediaManager` *constructor* in
- * the branch it takes only when you did not supply a manager. Without the
+ * transport passes that callback into the *constructor* of its own default
+ * manager, in the branch it takes only when you did not supply one. Without the
  * factory, a mic swapped mid-call is published by the manager and never
  * reaches a sender — the call stays up and the far end keeps the old track.
  */
@@ -32,13 +32,14 @@ test.afterEach(async ({ page }) => {
   await page.evaluate(() => window.__factory.teardown()).catch(() => {});
 });
 
-test("the transport holds our manager, and no Daily code is in the page", async ({ page }) => {
+test("the transport holds our manager, and the page loaded no foreign code", async ({ page }) => {
   const injected = await page.evaluate(() => window.__factory.injected());
   expect(injected.sameObject).toBe(true);
   expect(injected.constructorName).toBe("VoqalizeMediaManager");
-  // The point of the package. `@daily-co/daily-js` sets this global on import,
-  // so its absence is evidence the transport never fell back.
-  expect(injected.hasDailyGlobal).toBe(false);
+  // The point of the package: nothing in the media path fetches code at
+  // runtime, so a transport that fell back to a manager that does would show
+  // up here even if it passed every behavioural assertion below.
+  expect(injected.foreignScripts).toEqual([]);
 });
 
 test("initDevices() acquires through our manager and tracks() reports it", async ({ page }) => {

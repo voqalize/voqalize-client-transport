@@ -12,7 +12,7 @@
  * **Mirrored structurally** — `MediaManagerSurface`. The abstract
  * `MediaManager` class that `SmallWebRTCTransport` accepts is *not exported*
  * by `@pipecat-ai/small-webrtc-transport`; only `WavMediaManager` and
- * `DailyMediaManager` are. There is nothing to extend and nothing to name, so
+ * the default manager are. There is nothing to extend and nothing to name, so
  * the manager implements the shape and `createVoqalizeTransport()` performs
  * the one cast the missing export forces (see `src/transport.ts`).
  *

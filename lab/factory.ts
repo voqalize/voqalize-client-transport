@@ -7,8 +7,8 @@
  * that tier 1 can run the same bodies in node. Everything the factory adds —
  * that the injection takes, that `initDevices()` runs through *our* manager,
  * and above all that the `replaceTrack` wiring the stock transport only
- * performs for `DailyMediaManager` really does move a mid-call device switch
- * onto a live sender — is proven here, against a real `SmallWebRTCTransport`
+ * performs for its own default manager really does move a mid-call device
+ * switch onto a live sender — is proven here, against a real `SmallWebRTCTransport`
  * and real `RTCPeerConnection`s in a real engine.
  *
  * No signalling server is involved. The transport is never `_connect()`ed;
@@ -64,18 +64,25 @@ const factory = {
 
   /**
    * Did the injection take? Answered by identity, not by behaviour, because a
-   * transport that silently fell back to `DailyMediaManager` would still pass
-   * every behavioural assertion below — with Daily's code in the page, which
-   * is the exact thing this package exists to remove.
+   * transport that silently fell back to its own default manager would still
+   * pass every behavioural assertion below, while running code this package
+   * exists to replace.
+   *
+   * `foreignScripts` is the second half of that: every script the page has
+   * actually loaded, from any origin but its own. The list must be empty —
+   * nothing in the media path may fetch code at runtime.
    */
-  injected(): { sameObject: boolean; constructorName: string; hasDailyGlobal: boolean } {
+  injected(): { sameObject: boolean; constructorName: string; foreignScripts: string[] } {
     const { transport, manager } = current();
     const held = (transport as unknown as { mediaManager: unknown }).mediaManager;
     return {
       sameObject: held === manager,
       constructorName: (held as object).constructor.name,
-      // `@daily-co/daily-js` installs `window.DailyIframe` on import.
-      hasDailyGlobal: "DailyIframe" in window,
+      foreignScripts: performance
+        .getEntriesByType("resource")
+        .filter((entry) => (entry as PerformanceResourceTiming).initiatorType === "script")
+        .map((entry) => entry.name)
+        .filter((url) => new URL(url, location.href).origin !== location.origin),
     };
   },
 

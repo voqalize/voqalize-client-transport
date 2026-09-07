@@ -1,7 +1,7 @@
 {
   "name": "@voqalize/client-transport",
   "version": "0.1.0",
-  "description": "A Daily-free MediaManager and transport factory for pipecat's SmallWebRTCTransport. Owns the microphone, camera and screen share in the browser, with no proprietary dependency and no remotely-loaded code.",
+  "description": "An open implementation of pipecat's MediaManager protocol for SmallWebRTCTransport. Owns the microphone, camera and screen share in the browser using navigator.mediaDevices alone.",
   "keywords": [
     "pipecat",
     "webrtc",
