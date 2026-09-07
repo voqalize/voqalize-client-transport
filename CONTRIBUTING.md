@@ -14,8 +14,9 @@ pnpm exec playwright install chromium firefox webkit   # first time only
 pnpm test
 ```
 
-Node 20+ and pnpm 10+. The two pipecat packages are peer dependencies and are
-installed as devDependencies here.
+Node 24 (Active LTS) and pnpm 10+, for the toolchain only — the package itself
+targets browsers and has no Node entry point. The two pipecat packages are peer
+dependencies and are installed as devDependencies here.
 
 ## The gate
 

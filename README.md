@@ -126,7 +126,10 @@ attachTrackChangedHandler(transport, mediaManager);
 | `@pipecat-ai/client-js`              | `>=1.13.0 <2` (peer)                                         |
 | `@pipecat-ai/small-webrtc-transport` | `>=1.10.0 <2` (peer)                                         |
 | Browsers                             | Chromium, Firefox and WebKit/Safari, all tested every commit |
-| Node (build and unit tests)          | 20+                                                          |
+
+This is a browser package. It is built for a page, has no Node entry point and
+declares no `engines` — Node appears here only as the tool that builds and
+tests it.
 
 Both pipecat packages are peer dependencies and are never bundled — a second
 copy in your tree would break `instanceof DeviceError`.
