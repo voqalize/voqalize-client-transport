@@ -1,0 +1,7 @@
+# Belt and braces: package.json `files` is the authority, this is the backstop.
+lab/
+tests/
+e2e/
+docs/
+.github/
+*.config.ts

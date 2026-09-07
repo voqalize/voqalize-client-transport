@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>mediamanager probe</title>
+  </head>
+  <body>
+    <!--
+      This page has no UI. Everything a test needs is a function on
+      `window.__probe`, called via Playwright's `page.evaluate`. Keep it that
+      way — the moment this grows buttons, it stops being a probe and starts
+      being a thing that needs its own tests.
+    -->
+    <p>mediamanager probe — see window.__probe from a test, not from here.</p>
+    <script type="module" src="/probe.ts"></script>
+  </body>
+</html>

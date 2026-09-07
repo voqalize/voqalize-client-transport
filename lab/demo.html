@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>VoqalizeMediaManager — loopback lab</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0f1115;
+        --panel: #171a21;
+        --panel-2: #1e222b;
+        --line: #2b3140;
+        --text: #e6e9ef;
+        --dim: #98a2b3;
+        --good: #3ddc97;
+        --warn: #ffc857;
+        --bad: #ff6b6b;
+        --accent: #7aa2f7;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          "Segoe UI",
+          Roboto,
+          sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+        padding: 24px clamp(12px, 3vw, 40px) 80px;
+      }
+      h1 {
+        font-size: 1.45rem;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 1rem;
+        margin: 0 0 10px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--dim);
+      }
+      p {
+        margin: 0 0 10px;
+      }
+      code {
+        background: #000a;
+        padding: 1px 5px;
+        border-radius: 4px;
+        font-size: 0.9em;
+      }
+      a {
+        color: var(--accent);
+      }
+      .wrap {
+        max-width: 1400px;
+        margin: 0 auto;
+      }
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 16px 18px;
+        margin-bottom: 18px;
+      }
+      .grid {
+        display: grid;
+        gap: 18px;
+        grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+        align-items: start;
+      }
+      .note {
+        color: var(--dim);
+        font-size: 0.88rem;
+      }
+      .banner {
+        border-left: 4px solid var(--accent);
+        background: var(--panel-2);
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 14px;
+      }
+      .banner.bad {
+        border-left-color: var(--bad);
+      }
+      .banner.good {
+        border-left-color: var(--good);
+      }
+
+      /* -- controls ------------------------------------------------------ */
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 12px;
+      }
+      button {
+        font: inherit;
+        font-weight: 600;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 9px 14px;
+        cursor: pointer;
+      }
+      button:hover:not(:disabled) {
+        border-color: var(--accent);
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+      button.primary {
+        background: #24406e;
+        border-color: #3b5fa4;
+      }
+      button.on {
+        background: #1d4c3c;
+        border-color: var(--good);
+      }
+      button.danger {
+        background: #4c1d1d;
+        border-color: var(--bad);
+      }
+      label.field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 0.8rem;
+        color: var(--dim);
+        min-width: 230px;
+        flex: 1 1 230px;
+      }
+      select {
+        font: inherit;
+        color: var(--text);
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 8px 10px;
+        max-width: 100%;
+      }
+
+      /* -- video --------------------------------------------------------- */
+      .videos {
+        display: grid;
+        gap: 14px;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      }
+      figure {
+        margin: 0;
+      }
+      figcaption {
+        font-size: 0.8rem;
+        color: var(--dim);
+        margin-bottom: 6px;
+        display: flex;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      video {
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #000;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        object-fit: contain;
+      }
+
+      /* -- meter --------------------------------------------------------- */
+      .meter {
+        height: 22px;
+        background: var(--panel-2);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        overflow: hidden;
+      }
+      .meter > div {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, var(--good), var(--warn));
+        transition: width 0.1s linear;
+      }
+
+      /* -- stats --------------------------------------------------------- */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 7px 8px;
+        border-bottom: 1px solid var(--line);
+      }
+      th {
+        color: var(--dim);
+        font-weight: 600;
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      td.big {
+        font-size: 1.35rem;
+        font-weight: 700;
+      }
+      .lane {
+        font-weight: 700;
+      }
+      .ok {
+        color: var(--good);
+      }
+      .zero {
+        color: var(--bad);
+      }
+      .idle {
+        color: var(--dim);
+      }
+      .scroll {
+        overflow-x: auto;
+      }
+
+      /* -- state / log --------------------------------------------------- */
+      dl.state {
+        display: grid;
+        grid-template-columns: max-content 1fr;
+        gap: 4px 14px;
+        margin: 0;
+        font-size: 0.9rem;
+      }
+      dl.state dt {
+        color: var(--dim);
+      }
+      dl.state dd {
+        margin: 0;
+        font-variant-numeric: tabular-nums;
+        overflow-wrap: anywhere;
+      }
+      #log {
+        height: 260px;
+        overflow-y: auto;
+        background: #0b0d12;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 10px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.78rem;
+        line-height: 1.55;
+      }
+      #log div {
+        white-space: pre-wrap;
+      }
+      #log .t {
+        color: #5d6b85;
+      }
+      #log .err {
+        color: var(--bad);
+      }
+      #log .hot {
+        color: var(--good);
+      }
+      ol.try {
+        margin: 0;
+        padding-left: 20px;
+      }
+      ol.try li {
+        margin-bottom: 8px;
+      }
+      ol.try b {
+        color: var(--text);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header class="panel">
+        <h1>VoqalizeMediaManager — loopback lab</h1>
+        <div class="banner">
+          <p>
+            <b>There is no server here.</b> This page opens
+            <b>two <code>RTCPeerConnection</code>s inside this one browser tab</b> and wires them to
+            each other — the offer and answer are exchanged in JavaScript, the ICE candidates are
+            handed straight across, and nothing leaves the machine. The "remote" video below is your
+            own camera after it has been <b>encoded, sent over RTP, and decoded again</b>.
+          </p>
+          <p class="note">
+            PyGato is not involved and no signalling happens. What this proves is the half that
+            belongs to the browser: the manager acquires devices, publishes clones, the peer
+            connection encodes them, and a device switch reaches the wire through
+            <code>replaceTrack</code> without renegotiating. If a number below is moving, that part
+            of the pipeline is real.
+          </p>
+        </div>
+        <div id="support"></div>
+      </header>
+
+      <section class="panel">
+        <h2>1 · Call</h2>
+        <div class="row">
+          <button id="start" class="primary">Start call</button>
+          <button id="stop" disabled>Stop call</button>
+          <button id="mic" disabled>Mic</button>
+          <button id="cam" disabled>Camera</button>
+          <button id="screen" disabled>Share screen</button>
+        </div>
+        <div class="row">
+          <label class="field">Microphone<select id="micSel" disabled></select></label>
+          <label class="field">Camera<select id="camSel" disabled></select></label>
+          <label class="field"
+            >Speaker (<code>setSinkId</code>)<select id="spkSel" disabled></select
+          ></label>
+        </div>
+        <div class="row">
+          <label class="note" style="display: flex; gap: 8px; align-items: center">
+            <input type="checkbox" id="hear" />
+            Play the decoded remote audio out loud —
+            <b>headphones only</b>, this is a loopback and speakers will howl.
+          </label>
+        </div>
+        <p class="note">
+          Start acquires the mic, publishes a clone, opens the loopback and applies the encoding
+          policy. Everything after that happens on the live call: no button below re-negotiates.
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>2 · Local capture vs. what came back off the wire</h2>
+        <div class="videos">
+          <figure>
+            <figcaption>
+              <span>Camera — local preview</span><span id="localCamInfo" class="note"></span>
+            </figcaption>
+            <video id="localCam" autoplay playsinline muted></video>
+          </figure>
+          <figure>
+            <figcaption>
+              <span>Camera — decoded by the far peer</span
+              ><span id="remoteCamInfo" class="note"></span>
+            </figcaption>
+            <video id="remoteCam" autoplay playsinline muted></video>
+          </figure>
+          <figure>
+            <figcaption>
+              <span>Screen — local preview</span><span id="localScrInfo" class="note"></span>
+            </figcaption>
+            <video id="localScr" autoplay playsinline muted></video>
+          </figure>
+          <figure>
+            <figcaption>
+              <span>Screen — decoded by the far peer</span
+              ><span id="remoteScrInfo" class="note"></span>
+            </figcaption>
+            <video id="remoteScr" autoplay playsinline muted></video>
+          </figure>
+        </div>
+        <audio id="remoteAudio" autoplay></audio>
+      </section>
+
+      <section class="panel">
+        <h2>3 · Microphone level, measured at the receiving end</h2>
+        <div class="meter"><div id="meterBar"></div></div>
+        <p class="note" style="margin-top: 8px">
+          This is <code>RTCInboundRtpStreamStats.audioLevel</code> from the <b>receiving</b> peer —
+          the level of audio that actually survived encode, transmission and decode. It is
+          deliberately <b>not</b> a Web Audio <code>AnalyserNode</code> on the capture track: SPEC
+          decision 7 keeps Web Audio out of the capture path, and a meter built there would be
+          measuring a pipeline we do not ship. <span id="meterNum" class="ok"></span>
+        </p>
+      </section>
+
+      <section class="panel">
+        <h2>4 · Per-lane encoder, live (1 Hz)</h2>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Lane (m-line)</th>
+                <th>Frames encoded</th>
+                <th>FPS</th>
+                <th>Resolution</th>
+                <th>Bitrate</th>
+                <th>Packets sent</th>
+                <th>Decoded / received</th>
+                <th>Codec</th>
+                <th>Limited by</th>
+              </tr>
+            </thead>
+            <tbody id="statsBody"></tbody>
+          </table>
+        </div>
+        <p class="note" style="margin-top: 10px">
+          <b>Healthy looks like this.</b>
+          <b>audio (m-line 0):</b> packets sent climbing by ~50/s, bytes climbing, audioLevel above
+          0 when you speak — there is no <code>framesEncoded</code> for audio, and a blank there is
+          correct. <b>video (m-line 1):</b> frames encoded climbing steadily, ~24–30&nbsp;fps,
+          640×360, roughly 300–600&nbsp;kbps — the policy is <code>maintain-framerate</code>, so a
+          face stays smooth and goes soft under pressure. <b>screenVideo (m-line 2):</b> frames
+          encoded climbing <i>slowly</i> — about 5&nbsp;fps is the policy, not a fault — at your
+          real display resolution, up to 1.5&nbsp;Mbps. It is <code>maintain-resolution</code>: a
+          scroll should drop frames, never sharpness. A lane that is idle shows a dash. A lane that
+          is live and stuck at <span class="zero">0</span> frames is the failure worth reporting.
+        </p>
+      </section>
+
+      <div class="grid">
+        <section class="panel">
+          <h2>5 · What the manager thinks</h2>
+          <dl class="state" id="state"></dl>
+          <p class="note" style="margin-top: 12px">
+            <b>m-lines stay at 3, always.</b> All three transceivers are created
+            <code>sendonly</code> before the first offer, because
+            <code>supportsScreenShare</code> is a constant <code>true</code> (decision 4). That is
+            why starting a screen share mid-call shows <b>renegotiations needed: 0</b> — the lane
+            was already there.
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>6 · Event log</h2>
+          <div id="log"></div>
+          <p class="note" style="margin-top: 10px">
+            Every manager callback, every <code>replaceTrack</code> the hook performed, every device
+            error, and the browser's own "Stop sharing".
+          </p>
+        </section>
+      </div>
+
+      <section class="panel">
+        <h2>7 · Things to try</h2>
+        <ol class="try">
+          <li>
+            <b>Unplug a USB headset mid-call.</b> Watch the log for
+            <code>onAvailableMicsUpdated</code> and the re-acquire. The frames-encoded counter on
+            the video lane must not reset, and the audio packet counter must keep climbing — the mic
+            was swapped with <code>replaceTrack</code>, not by rebuilding the call.
+          </li>
+          <li>
+            <b>Click the browser's own "Stop sharing" chrome</b> while a screen share is live (not
+            the button on this page). The log should show <code>onScreenTrackStopped</code>, the
+            screen lane should go idle, and <b>m-lines must still read 3</b> with renegotiations
+            still 0.
+          </li>
+          <li>
+            <b>Switch the Bluetooth output</b> in the speaker dropdown while playing the remote
+            audio. Firefox does not implement <code>setSinkId</code>; if the dropdown is empty or
+            the selection does nothing, that is the engine, and the log says which.
+          </li>
+          <li>
+            <b>Background this tab for ten seconds, then come back.</b> Frame counters keep climbing
+            on some engines and throttle hard on others — either is fine, but the call must still be
+            <code>connected</code> and the counters must resume, not restart.
+          </li>
+          <li>
+            <b>Deny a permission.</b> Reload, block the camera, and press Camera. It should land as
+            one typed <code>onDeviceError</code> in the log with the browser's own exception name,
+            and the microphone must keep working — one denial must not cost the other device.
+          </li>
+          <li>
+            <b>Turn the camera off and on again</b> while a screen share is running. The screen
+            lane's counters must not so much as blink: two lanes, two encoders (decision 10).
+          </li>
+        </ol>
+      </section>
+    </div>
+    <script type="module" src="/demo.ts"></script>
+  </body>
+</html>
