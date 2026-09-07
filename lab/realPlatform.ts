@@ -420,6 +420,13 @@ export class RealLabPlatform implements LabPlatform {
           d.deviceId !== "default" &&
           d.deviceId !== "communications",
       ),
+      // The API's existence, and nothing more — a *calling* probe cannot live
+      // here. WebKit grants exactly one gesture-free `getDisplayMedia` per
+      // page: the first call resolves and the second throws
+      // `InvalidStateError: getDisplayMedia must be called from a user gesture
+      // handler`. A probe that spends it leaves nothing for the case. Tier 2
+      // measures the real answer in a throwaway page instead and overrides
+      // this — see `screenShareSupport()` in `e2e/screenShareSupport.ts`.
       screenShare: typeof navigator.mediaDevices.getDisplayMedia === "function",
       // No engine can be made to drop a device mid-`getUserMedia` on cue.
       vanishMidAcquire: false,

@@ -20,6 +20,7 @@ import { LAB_METHODS } from "../lab/lab";
 import { LabError, type LabApi, type LabMethod, type LabResult } from "../lab/labApi";
 import type { LabCapabilities } from "../lab/labPlatform";
 import { CONTRACT_CASES, type Tier } from "../tests/contract/cases";
+import { screenShareSupport } from "./screenShareSupport";
 
 const TIER: Tier = "browser";
 
@@ -49,10 +50,15 @@ for (const contractCase of CONTRACT_CASES) {
     continue;
   }
 
-  test(contractCase.name, async ({ page }, testInfo) => {
+  test(contractCase.name, async ({ page, browser, baseURL }, testInfo) => {
     const lab = remoteLab(page);
     await lab.reset(contractCase.reset);
     const caps: LabCapabilities = await lab.capabilities();
+    // The page can only report that `getDisplayMedia` exists; whether it
+    // *resolves* here is measured once per worker in a throwaway page, because
+    // WebKit grants exactly one gesture-free call per page and an in-page
+    // probe would spend the one this case needs. See `screenShareSupport.ts`.
+    caps.screenShare = caps.screenShare && (await screenShareSupport(browser, baseURL ?? "/"));
     testInfo.annotations.push({
       type: "capabilities",
       description: `[${testInfo.project.name}] ${JSON.stringify(caps)}`,

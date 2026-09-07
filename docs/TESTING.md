@@ -81,10 +81,17 @@ miss the case's 20 s window. `retries: 1` is set on CI for this reason. If it
 starts failing on retry too, it is no longer a flake: read the trace before
 widening the timeout.
 
-The 12 tier-2 skips are all engine facts: Firefox fakes one microphone, one
+The 12 tier-2 skips on macOS are all engine facts: Firefox fakes one microphone, one
 camera and implements no `contentHint`; chromium fakes one camera; three cases
 are tier-1-only by construction. Full capability table in
 [FINDINGS.md](FINDINGS.md#per-engine-capability-table).
+
+On a headless Linux runner (which is what CI is) firefox and webkit add the
+eleven screen-share cases to that list: neither has a display to capture. That
+capability is measured, once per worker, in a throwaway page — because WebKit
+grants exactly one gesture-free `getDisplayMedia` per page and an in-page probe
+would spend the call the case needs. See
+[FINDINGS.md](FINDINGS.md#webkit-grants-exactly-one-gesture-free-getdisplaymedia-per-page).
 
 ## The suites
 

@@ -147,6 +147,49 @@ does not, so a meter that trusted it would sit dead in the browser most people
 open. The loopback treats a **zero** as missing, not as silence, and falls back
 to the synchronization source — still the receiving side, still not Web Audio.
 
+## WebKit grants exactly one gesture-free `getDisplayMedia` per page
+
+Measured in Playwright's WebKit on macOS, two calls in one `page.evaluate`:
+
+```
+1: ok tracks=1
+2: InvalidStateError: getDisplayMedia must be called from a user gesture handler.
+```
+
+chromium and firefox resolve both. The consequence is not academic: any probe
+that _calls_ `getDisplayMedia` from inside the page under test spends the one
+call the case needs, and every WebKit screen-share case then skips itself. The
+capability is therefore measured once per worker in a throwaway context that is
+closed immediately — [`e2e/screenShareSupport.ts`](../e2e/screenShareSupport.ts).
+
+Two mechanical details that come with that shape. A hand-made
+`browser.newContext()` does **not** inherit the project's `use` block, and
+WebKit's mock capture devices only exist once the context has been granted
+microphone and camera — so `permissions` has to be carried across explicitly.
+And the measurement must be memoized _in flight_, not just on completion: under
+`fullyParallel` the first few tests reach it simultaneously and each opens its
+own throwaway context, which was enough to make Vite start answering
+`NS_ERROR_NET_EMPTY_RESPONSE` on firefox.
+
+## A headless Linux runner has no display, and the gate said otherwise
+
+`screenShare` was gated on `typeof navigator.mediaDevices.getDisplayMedia ===
+"function"`. On macOS all three engines resolve, so that read `true` for the
+right reason by accident. On GitHub's ubuntu runner there is nothing to
+capture:
+
+| engine   | headless ubuntu                                                      |
+| -------- | -------------------------------------------------------------------- |
+| chromium | resolves — `--use-fake-ui-for-media-stream` picks a fake source      |
+| firefox  | **`NotFoundError: The object can not be found here.`**               |
+| webkit   | **`NotAllowedError: The request is not allowed by the user agent…`** |
+
+Eleven cases that declare `requires: ["screenShare"]` therefore _failed_ on the
+first CI run rather than taking the named skip they were written to take. The
+cases were right and the gate was wrong — exactly the failure mode the Firefox
+ICE finding above describes, caught the second time by CI rather than by a week
+of misreading. Nothing was weakened: the gate now measures.
+
 ## Per-engine capability table
 
 Measured by the suite itself; every tier-2 test carries the raw object as an
