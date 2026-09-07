@@ -29,7 +29,7 @@ jobs:
     name: the tag equals the manifest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
@@ -57,9 +57,9 @@ jobs:
       contents: read
       id-token: write # mints the OIDC token npm exchanges for a publish grant
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
@@ -79,7 +79,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # --generate-notes diffs against the previous tag
       - env:
