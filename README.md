@@ -52,7 +52,7 @@ const transport = createVoqalizeTransport({
 });
 ```
 
-### Two things pipecat has no channel for
+### What pipecat has no channel for
 
 **Speaker routing.** `updateSpeaker()` selects a device; something has to apply
 it to the element that plays the bot. Hand the manager your audio element and
@@ -67,6 +67,16 @@ detach(); // on unmount
 play the bot's audio, silently. The manager detects the refusal, reports it
 through `media.onPlaybackBlocked`, and `resumePlayback()` retries every bound
 element from inside a real click.
+
+**An element that stops playing.** On Android Chrome, a page that takes over a
+live call can give the element the agent's track, resolve `play()`, and output
+nothing: packets arrive, the samples played stand still, and about a second in
+the element errors and pauses for good. A bound element is guarded: on that
+stall, or on the element's `error`, the manager re-attaches the same track and
+plays it again, and reports it through `media.onPlaybackRecovered`. Silence is
+never a stall (the server sends no packets while the agent is quiet), and an
+element you paused is left alone. `media.playoutGuard: false` turns it off.
+[The measurement](docs/FINDINGS.md#android-chrome-stops-playing-a-taken-over-call).
 
 ### If you build your transport somewhere else
 

@@ -24,6 +24,13 @@ export {
   CAMERA_CONSTRAINTS,
   SCREEN_CONSTRAINTS,
 } from "./mediaManager";
+export { PlayoutGuard } from "./playoutGuard";
+export type {
+  PlayoutGuardOptions,
+  PlayoutRecoveryReason,
+  PlayoutStatsSource,
+  PlayoutStatsReport,
+} from "./playoutGuard";
 export type {
   VoqalizeMediaManagerOptions,
   LocalTrackChangedEvent,

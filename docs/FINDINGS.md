@@ -122,6 +122,26 @@ WebKit populates `inbound-rtp.audioLevel` properly (0.1006 measured). Chromium
 does not, so the loopback treats a **zero** as missing, not as silence, and
 falls back to the synchronization source.
 
+## Android Chrome stops playing a taken-over call
+
+Chrome 154 on Android 10, a page loaded mid-call that takes the call over
+from the page before it. The agent's remote track is attached to an
+`<audio>` element and `play()` resolves. Then, in every occurrence measured:
+
+- the element's `currentTime` advances, so it reports itself playing;
+- `inbound-rtp.packetsReceived` keeps rising (the agent is speaking);
+- `inbound-rtp.totalSamplesReceived`, which only moves as the output pulls
+  audio, stays at about 20 ms of audio;
+- about a second in, the element raises `error` with code 3
+  (`MEDIA_ERR_DECODE`, no message) and pauses, and stays paused.
+
+It happened with pipecat's default (daily) media manager and with this one,
+so it is the element and not the capture side. A cold start on the same phone
+does not do it. Re-attaching the same track (a new `MediaStream` on
+`srcObject`, then `play()`) brings the audio back at once; a watchdog that did
+this after 300 ms of stall closed the gap on the phone. That is the
+`PlayoutGuard`.
+
 ## WebKit grants exactly one gesture-free `getDisplayMedia` per page
 
 Measured in Playwright's WebKit on macOS, two calls in one `page.evaluate`:

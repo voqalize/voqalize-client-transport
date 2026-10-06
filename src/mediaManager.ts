@@ -52,9 +52,16 @@ import {
   type InputKind,
   type MediaDevicesLike,
   type OutputElementLike,
+  type StreamLike,
   type TrackLike,
   type VisibilitySource,
 } from "./mediaPlatform";
+import {
+  PlayoutGuard,
+  type PlayoutGuardOptions,
+  type PlayoutRecoveryReason,
+  type PlayoutStatsSource,
+} from "./playoutGuard";
 
 export type LocalTrackType = "audio" | "video" | "screenVideo" | "screenAudio";
 
@@ -201,6 +208,21 @@ export interface VoqalizeMediaManagerOptions {
    * click.
    */
   onPlaybackBlocked?: (blocked: boolean) => void;
+  /**
+   * Called each time the playout guard re-attaches the agent's track to a
+   * bound element: `"error"` when the element raised one, `"stalled"` when
+   * packets kept arriving and nothing was played. For logging; the guard has
+   * already acted. See `playoutGuard.ts`.
+   */
+  onPlaybackRecovered?: (reason: PlayoutRecoveryReason) => void;
+  /** The guard's tuning, or `false` to turn it off. */
+  playoutGuard?:
+    false | Pick<PlayoutGuardOptions, "pollMs" | "stillMs" | "minPackets" | "maxRecoveries">;
+  /**
+   * Builds the stream a recovered element is re-attached to. Defaults to
+   * `new MediaStream(tracks)`; required only where there is no `MediaStream`.
+   */
+  makeStream?: (tracks: TrackLike[]) => StreamLike;
 }
 
 interface Slot {
@@ -280,6 +302,12 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   private readonly blockedElements = new Set<OutputElementLike>();
   private playbackBlockedReported = false;
   private readonly onPlaybackBlockedCallback: ((blocked: boolean) => void) | undefined;
+  private readonly onPlaybackRecoveredCallback:
+    ((reason: PlayoutRecoveryReason) => void) | undefined;
+  private readonly playoutGuardOptions: VoqalizeMediaManagerOptions["playoutGuard"];
+  private readonly makeStream: ((tracks: TrackLike[]) => StreamLike) | undefined;
+  private readonly guards = new Map<OutputElementLike, PlayoutGuard>();
+  private statsSource: PlayoutStatsSource | null = null;
 
   private deviceChangeTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onDeviceChange = () => this.scheduleDeviceChange();
@@ -315,6 +343,13 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     this.deviceChangeDebounceMs = options.deviceChangeDebounceMs ?? 250;
     this.fallbackToDefaultDevice = options.fallbackToDefaultDevice ?? true;
     this.onPlaybackBlockedCallback = options.onPlaybackBlocked;
+    this.onPlaybackRecoveredCallback = options.onPlaybackRecovered;
+    this.playoutGuardOptions = options.playoutGuard;
+    this.makeStream =
+      options.makeStream ??
+      (typeof MediaStream === "function"
+        ? (tracks) => new MediaStream(tracks as MediaStreamTrack[]) as StreamLike
+        : undefined);
 
     this.slots = {
       audio: newSlot("audio", "audio", "audioinput", true, true),
@@ -404,6 +439,9 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     this.deviceChangeTimer = null;
     for (const slot of this.allSlots()) this.clearMutedTimer(slot);
     this.stopPublishWatchdog();
+    for (const guard of this.guards.values()) guard.stop();
+    this.guards.clear();
+    this.statsSource = null;
     this.outputElements.clear();
     this.destroyed = true;
     this.initialized = false;
@@ -483,6 +521,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
    */
   bindOutputElement(element: OutputElementLike): () => void {
     this.outputElements.add(element);
+    this.guard(element);
     // Binding is synchronous to the caller but routing and playback are not, so
     // this promise has nobody to reject to. It must be caught here: an
     // unhandled rejection is an uncaught error in the host page, and a
@@ -496,10 +535,37 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       .then(() => this.ensurePlaying(element));
     return () => {
       this.outputElements.delete(element);
+      this.guards.get(element)?.stop();
+      this.guards.delete(element);
       // An element that leaves while blocked must not hold the whole app in a
       // "tap to enable audio" state forever.
       if (this.blockedElements.delete(element)) this.publishPlaybackBlocked();
     };
+  }
+
+  /**
+   * Lend the guard the peer connection's stats. `createVoqalizeTransport()`
+   * does this; an app wiring the manager by hand calls
+   * `attachTrackChangedHandler()`, which does it too. Without it the guard
+   * still answers the element's `error`, a second later than it could.
+   */
+  setStatsSource(source: PlayoutStatsSource | null): void {
+    this.statsSource = source;
+  }
+
+  private guard(element: OutputElementLike): void {
+    if (this.playoutGuardOptions === false || !this.makeStream || this.guards.has(element)) return;
+    const makeStream = this.makeStream;
+    this.guards.set(
+      element,
+      new PlayoutGuard(element, {
+        ...this.playoutGuardOptions,
+        stats: () => this.statsSource,
+        makeStream,
+        play: (el) => void this.ensurePlaying(el),
+        onRecovered: (reason) => this.onPlaybackRecoveredCallback?.(reason),
+      }),
+    );
   }
 
   /**

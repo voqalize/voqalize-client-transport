@@ -89,6 +89,16 @@ export interface OutputElementLike {
    */
   play?(): Promise<void>;
   readonly paused?: boolean;
+  /**
+   * What the playout guard reads to re-attach a track the element stopped
+   * playing (see `playoutGuard.ts`). Typed loosely on purpose: the DOM's
+   * `MediaProvider` includes sources this package never attaches, and the
+   * guard checks for a stream's shape before it touches one.
+   */
+  readonly srcObject?: unknown;
+  readonly error?: unknown;
+  addEventListener?(type: string, listener: () => void): void;
+  removeEventListener?(type: string, listener: () => void): void;
 }
 
 export function isLive(track: TrackLike | null | undefined): track is TrackLike {

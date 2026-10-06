@@ -5,6 +5,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- Playout recovery for bound output elements. When packets for the element's
+  track arrive and nothing is played, or the element raises `error`, the
+  manager re-attaches the same track and plays it again, and reports it
+  through `media.onPlaybackRecovered`. Measured on Android Chrome, where a
+  page taking over a live call played nothing.
+  [The measurement](docs/FINDINGS.md#android-chrome-stops-playing-a-taken-over-call).
+  `media.playoutGuard` tunes it or, with `false`, turns it off.
+- `PlayoutGuard`, the same logic for an element the manager does not own.
+- `VoqalizeMediaManager.setStatsSource()`, which `attachTrackChangedHandler`
+  now calls with the peer connection's `getStats`.
+
 ## [0.1.0] — 2026-09-07
 
 First release.

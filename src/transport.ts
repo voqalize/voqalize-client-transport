@@ -138,7 +138,8 @@ export function createVoqalizeTransport(options: VoqalizeTransportOptions = {}):
 
 /**
  * Wire the manager's track changes to the transport's senders — the half of
- * the injection the stock transport only performs for its own default.
+ * the injection the stock transport only performs for its own default — and
+ * lend the manager's playout guard the peer connection's stats.
  *
  * Exported because an app that has already built a `SmallWebRTCTransport` some
  * other way (a framework wrapper, an existing factory of its own) still needs
@@ -149,6 +150,15 @@ export function attachTrackChangedHandler(
   manager: VoqalizeMediaManager,
 ): void {
   const internals = transport as unknown as TransportInternals;
+
+  // The playout guard's view of the agent's audio: packets in against samples
+  // played, read off whichever peer connection is current. See
+  // `playoutGuard.ts`.
+  manager.setStatsSource(async () => {
+    const pc = internals.pc;
+    if (!pc || pc.connectionState === "closed") return null;
+    return pc.getStats();
+  });
 
   manager.setLocalTrackChangedHandler(async (event: LocalTrackChangedEvent) => {
     // `screenAudio` has no transceiver in this transport — pipecat's own

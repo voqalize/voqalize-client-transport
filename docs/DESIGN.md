@@ -103,9 +103,9 @@ option.
     exist; that is the interface's own shape. The uplink budget is split
     deliberately between them rather than left to two encoders competing.
 
-## Two capabilities pipecat has no place for
+## Capabilities pipecat has no place for
 
-Neither has a callback in `RTVIEventCallbacks`, so both live on this package's
+None has a callback in `RTVIEventCallbacks`, so they live on this package's
 own options rather than being smuggled into a typed callback that means
 something else.
 
@@ -118,6 +118,18 @@ selected device disappears and the manager falls back to the default.
 play, silently and per element. The manager owns this because it owns the
 elements: it detects the refusal, reports it through `onPlaybackBlocked`, and
 `resumePlayback()` retries every bound element from inside a real click.
+
+**Playout recovery.** The element can also stop playing a track it was
+playing, with no refusal to catch (see
+[FINDINGS](FINDINGS.md#android-chrome-stops-playing-a-taken-over-call)). Each
+bound element gets a `PlayoutGuard` that reads the receiver's `inbound-rtp`
+stats: packets for the element's track arriving while `totalSamplesReceived`
+stands still is a stall, and the guard re-attaches the same track in a new
+stream and plays it. The element's `error` triggers the same re-attach, one
+task later because Chrome pauses the element after the event. A stall needs
+packets, so silence never counts; a paused element is skipped; re-attaches are
+capped per source the app attaches. The stats come from the transport's peer
+connection, which `attachTrackChangedHandler` hands the manager.
 
 ## Layout
 
