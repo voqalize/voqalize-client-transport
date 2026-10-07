@@ -282,11 +282,13 @@ const factory = {
    * stock code, and the question is whether the agent is heard again, which
    * for an app means `trackStarted` for the new connection's audio.
    *
-   * `ours` false is the stock transport with our manager and nothing else of
-   * ours, so the test can show the defect it guards against.
+   * `shape` is how the app got the fix: `factory` (`createVoqalizeTransport`),
+   * `attached` (a stock transport, then `attachTrackChangedHandler` on
+   * `client.transport`, which is pipecat's proxy, as the demos do), or
+   * `stock` (none, so the test can show the defect it guards against).
    */
   async rebuildCall(
-    ours: boolean,
+    shape: "factory" | "attached" | "stock",
     trigger: "failed" | "disconnected",
   ): Promise<{
     firstHeard: boolean;
@@ -304,10 +306,12 @@ const factory = {
       waitForICEGathering: true,
     };
     const manager = new VoqalizeMediaManager();
-    const transport = ours
-      ? createVoqalizeTransport({ ...options, mediaManager: manager })
-      : new SmallWebRTCTransport({ ...options, mediaManager: manager as never });
+    const transport =
+      shape === "factory"
+        ? createVoqalizeTransport({ ...options, mediaManager: manager })
+        : new SmallWebRTCTransport({ ...options, mediaManager: manager as never });
     const client = new PipecatClient({ transport, enableMic: false, enableCam: false });
+    if (shape === "attached") attachTrackChangedHandler(client.transport as never, manager);
     const heard: string[] = [];
     client.on(RTVIEvent.TrackStarted, (track, participant) => {
       if (!participant?.local && track.kind === "audio") heard.push(track.id);

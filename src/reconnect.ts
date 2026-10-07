@@ -106,8 +106,23 @@ function keepNewerIncomingTracks(t: Reconnectable): void {
   };
 }
 
+/**
+ * A method as the object itself holds it. `client.transport` is pipecat's
+ * `TransportWrapper` proxy, whose `get` hands back a forwarder that looks the
+ * method up again on every call; once this module has replaced the method, that
+ * forwarder reaches the replacement, which would call itself. Property
+ * descriptors are not routed through the proxy's `get`.
+ */
+function ownMethod<F>(object: object, name: string): F | undefined {
+  for (let o: object | null = object; o; o = Object.getPrototypeOf(o)) {
+    const found = Object.getOwnPropertyDescriptor(o, name);
+    if (found) return typeof found.value === "function" ? (found.value as F) : undefined;
+  }
+  return undefined;
+}
+
 function reconnectSooner(t: Reconnectable, network: NetworkWatch | null): void {
-  const stock = t.handleICEConnectionStateChange;
+  const stock = ownMethod<() => void>(t, "handleICEConnectionStateChange");
   if (typeof stock !== "function" || typeof t.attemptReconnection !== "function") {
     logger.debug("[voqalize] no ICE handler on this transport; faster reconnect is off");
     return;

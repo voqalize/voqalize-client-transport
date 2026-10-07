@@ -5,6 +5,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- 0.3.1's ICE fix, installed through `attachTrackChangedHandler(client.transport)`,
+  broke every ICE state but `disconnected`: `client.transport` is pipecat's
+  proxy, whose methods look themselves up again on each call, so the fix's
+  call to the stock handler reached the fix again until the stack ran out. ICE
+  `failed` no longer rebuilt the connection at all. `createVoqalizeTransport()`
+  was unaffected.
+
 ## [0.3.1] — 2026-10-07
 
 ### Fixed

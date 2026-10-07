@@ -3,6 +3,7 @@
  * `SmallWebRTCTransport` they reach. The stand-in's track and ICE handling is
  * the stock transport's (1.10.7), trimmed to the lines that matter here.
  */
+import { TransportWrapper } from "@pipecat-ai/client-js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -213,6 +214,44 @@ describe("a network move", () => {
     expect(network.listeners).toBe(1);
     network.move();
     expect(t.rebuilds).toEqual([true]);
+  });
+});
+
+// What an app holds as `client.transport`: pipecat's proxy, whose methods are
+// forwarders that look the method up again on every call.
+describe("installed through client.transport", () => {
+  const wrapped = (t: StandIn) => new TransportWrapper(t as never).proxy as unknown as object;
+
+  it("keeps the stock handling of failed", () => {
+    const t = new StandIn();
+    reconnectOnNetworkChange(wrapped(t), null);
+    expect(() => t.ice("failed")).not.toThrow();
+    expect(t.rebuilds).toEqual([true]);
+  });
+
+  it("still rebuilds a disconnected path after the short grace", () => {
+    vi.useFakeTimers();
+    try {
+      const t = new StandIn();
+      reconnectOnNetworkChange(wrapped(t), null);
+      t.ice("disconnected");
+      vi.advanceTimersByTime(DISCONNECTED_GRACE_MS);
+      expect(t.rebuilds).toEqual([true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts a rebuilt connection's audio", () => {
+    const t = new StandIn();
+    reconnectOnNetworkChange(wrapped(t), null);
+    t.receive(new FakeTrack());
+    const old = t._incomingTracks.get("microphone")!.track;
+    const next = new FakeTrack();
+    t.receive(next);
+    old.end();
+    next.unmute();
+    expect(t.started).toEqual([next]);
   });
 });
 

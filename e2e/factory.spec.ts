@@ -141,23 +141,30 @@ test.describe("a rebuilt connection", () => {
     test.skip(browserName === "webkit", "WebKit stalls a rebuilt in-page connection at DTLS");
   });
 
-  test("the agent is heard again after the connection is rebuilt", async ({ page }) => {
-    await page.mouse.click(1, 1);
-    const result = await page.evaluate(() => window.__factory.rebuildCall(true, "failed"));
-    expect(result, JSON.stringify(result)).toMatchObject({
-      firstHeard: true,
-      rebuilt: true,
-      restart: true,
-      newHeard: true,
+  for (const shape of ["factory", "attached"] as const) {
+    test(`the agent is heard again after the connection is rebuilt (${shape})`, async ({
+      page,
+    }) => {
+      await page.mouse.click(1, 1);
+      const result = await page.evaluate(
+        (shape) => window.__factory.rebuildCall(shape, "failed"),
+        shape,
+      );
+      expect(result, JSON.stringify(result)).toMatchObject({
+        firstHeard: true,
+        rebuilt: true,
+        restart: true,
+        newHeard: true,
+      });
     });
-  });
+  }
 
   // The control. The stock transport loses the new connection's audio
   // (pipecat 1.10.6 through 1.10.8; `src/reconnect.ts`). When this starts
   // failing, pipecat has fixed it, and the workaround can go.
   test("the stock transport is not heard after a rebuild", async ({ page }) => {
     await page.mouse.click(1, 1);
-    const result = await page.evaluate(() => window.__factory.rebuildCall(false, "failed"));
+    const result = await page.evaluate(() => window.__factory.rebuildCall("stock", "failed"));
     expect(result, JSON.stringify(result)).toMatchObject({
       firstHeard: true,
       rebuilt: true,
@@ -169,7 +176,9 @@ test.describe("a rebuilt connection", () => {
     page,
   }) => {
     await page.mouse.click(1, 1);
-    const result = await page.evaluate(() => window.__factory.rebuildCall(true, "disconnected"));
+    const result = await page.evaluate(() =>
+      window.__factory.rebuildCall("attached", "disconnected"),
+    );
     expect(result, JSON.stringify(result)).toMatchObject({ rebuilt: true, newHeard: true });
     expect(result.offerAfterMs).toBeGreaterThanOrEqual(1_400);
     expect(result.offerAfterMs).toBeLessThan(4_000);
