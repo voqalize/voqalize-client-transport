@@ -325,6 +325,8 @@ const factory = {
       while (!done() && performance.now() < end) await new Promise((r) => setTimeout(r, 50));
       return done();
     };
+    const dtlsState = (pc: RTCPeerConnection | null) =>
+      pc?.getTransceivers()[0]?.receiver.transport?.state ?? null;
     const remoteAudio = (pc: RTCPeerConnection | null) =>
       pc?.getTransceivers()[0]?.receiver.track.id ?? null;
 
@@ -345,8 +347,12 @@ const factory = {
       const at = performance.now();
       old.dispatchEvent(new Event("iceconnectionstatechange"));
 
+      // Up means its DTLS transport is, which is what carries the media.
+      // Never `connectionState`: WebKit leaves it at "connecting" when DTLS
+      // finishes before the answer is applied, which an in-page bot's zero
+      // round trip makes the usual order, though the call is carrying audio.
       const rebuilt = await until(
-        () => internals.pc !== old && internals.pc?.connectionState === "connected",
+        () => internals.pc !== old && dtlsState(internals.pc) === "connected",
         10_000,
       );
       const second = bot.offers[1];
@@ -359,7 +365,7 @@ const factory = {
         offerAfterMs: second ? Math.round(second.at - at) : null,
         newHeard,
         offers: bot.offers.length,
-        state: `${internals.pc === old ? "old" : "new"} ${internals.pc?.connectionState}/${internals.pc?.iceConnectionState}`,
+        state: `${internals.pc === old ? "old" : "new"} ${internals.pc?.connectionState}/${internals.pc?.iceConnectionState}/dtls ${dtlsState(internals.pc)}`,
       };
     } finally {
       await client.disconnect().catch(() => {});

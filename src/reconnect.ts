@@ -162,9 +162,17 @@ function reconnectSooner(t: Reconnectable, network: NetworkWatch | null): void {
     const pc = live.pc;
     // Only a call that has been up has a path to move. A first connect in
     // flight fails or succeeds on its own, and a rebuild already under way is
-    // left alone.
-    const state = pc?.connectionState;
-    if (state !== "connected" && state !== "disconnected" && state !== "failed") return;
+    // left alone. ICE's state, not the connection's: WebKit can leave
+    // `connectionState` at "connecting" for a whole call that is carrying
+    // audio, when DTLS finishes before the answer is applied.
+    const state = pc?.iceConnectionState;
+    if (
+      state !== "connected" &&
+      state !== "completed" &&
+      state !== "disconnected" &&
+      state !== "failed"
+    )
+      return;
     if (offline()) return;
     rebuild(live, "the device moved networks");
   });

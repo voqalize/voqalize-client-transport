@@ -13,6 +13,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   call to the stock handler reached the fix again until the stack ran out. ICE
   `failed` no longer rebuilt the connection at all. `createVoqalizeTransport()`
   was unaffected.
+- A network move now rebuilds a call on Safari. Whether a call was up was read
+  from `connectionState`, which WebKit can leave at "connecting" for a call
+  that is carrying audio; it is now read from ICE.
 
 ## [0.3.1] — 2026-10-07
 

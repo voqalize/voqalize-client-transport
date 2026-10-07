@@ -130,17 +130,6 @@ test("keepAcrossPageLoads rejoins across a real reload, and forgets a refused ca
 // The network changing under a call: a real transport, a real rebuild, and an
 // in-page bot on the far end (`lab/inPageBot.ts`).
 test.describe("a rebuilt connection", () => {
-  // Not on WebKit. With both ends of a call in one page, WebKit leaves the
-  // rebuilt connection's DTLS at "connecting" beside the old one: always on
-  // CI's Linux WebKit, now and then on macOS. The transport has done its part
-  // by then (the restart offer went out and was answered), and a bare second
-  // loopback connection comes up fine there, so it is something of the
-  // in-page shape, not of ours. The logic is covered in
-  // `tests/reconnect.test.ts`; Chromium and Firefox run it end to end.
-  test.beforeEach(({ browserName }) => {
-    test.skip(browserName === "webkit", "WebKit stalls a rebuilt in-page connection at DTLS");
-  });
-
   for (const shape of ["factory", "attached"] as const) {
     test(`the agent is heard again after the connection is rebuilt (${shape})`, async ({
       page,

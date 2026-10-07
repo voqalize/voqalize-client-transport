@@ -188,13 +188,23 @@ describe("a network move", () => {
     const t = new StandIn();
     const network = fakeNetwork();
     reconnectOnNetworkChange(t, network);
-    t.pc!.connectionState = "connecting";
+    t.pc!.iceConnectionState = "checking";
     network.move();
-    t.pc!.connectionState = "closed";
+    t.pc!.iceConnectionState = "closed";
     network.move();
     t.pc = null;
     network.move();
     expect(t.rebuilds).toEqual([]);
+  });
+
+  // WebKit can report the connection "connecting" for a call carrying audio.
+  it("rebuilds a call whose connection state never caught up", () => {
+    const t = new StandIn();
+    const network = fakeNetwork();
+    reconnectOnNetworkChange(t, network);
+    t.pc!.connectionState = "connecting";
+    network.move();
+    expect(t.rebuilds).toEqual([true]);
   });
 
   it("does nothing while offline", () => {
