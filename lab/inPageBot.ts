@@ -86,34 +86,3 @@ export async function startInPageBot(): Promise<InPageBot> {
     },
   };
 }
-
-/**
- * Whether this engine can bring up a second loopback connection while the
- * first is still open — the shape of every rebuild — with nothing of ours or
- * pipecat's involved. CI's Linux WebKit cannot (its second connection never
- * leaves DTLS "connecting"), and a test that needs it skips by name there
- * rather than reporting a failure of code it never reached.
- */
-export async function probeSecondConnection(): Promise<boolean> {
-  const pair = async () => {
-    const a = new RTCPeerConnection();
-    const b = new RTCPeerConnection();
-    a.onicecandidate = (e) => void b.addIceCandidate(e.candidate ?? undefined).catch(() => {});
-    b.onicecandidate = (e) => void a.addIceCandidate(e.candidate ?? undefined).catch(() => {});
-    a.createDataChannel("probe");
-    await a.setLocalDescription(await a.createOffer());
-    await b.setRemoteDescription(a.localDescription!);
-    await b.setLocalDescription(await b.createAnswer());
-    await a.setRemoteDescription(b.localDescription!);
-    const end = performance.now() + 5_000;
-    while (a.connectionState !== "connected" && performance.now() < end) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    return { up: a.connectionState === "connected", close: () => (a.close(), b.close()) };
-  };
-  const first = await pair();
-  const second = await pair();
-  first.close();
-  second.close();
-  return first.up && second.up;
-}
