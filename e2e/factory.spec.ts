@@ -130,12 +130,20 @@ test("keepAcrossPageLoads rejoins across a real reload, and forgets a refused ca
 // The network changing under a call: a real transport, a real rebuild, and an
 // in-page bot on the far end (`lab/inPageBot.ts`).
 test.describe("a rebuilt connection", () => {
-  // WebKit, with both ends in one page and several workers, now and then
-  // leaves the new connection's DTLS at "connecting" with ICE connected
-  // (seen in about one run in twenty at eight workers; `state` in the
-  // result says so). The transport has done its part by then — the restart
-  // offer went out and was answered — so a retry is the honest response.
+  // WebKit on macOS, with both ends in one page and several workers, now and
+  // then leaves the new connection's DTLS at "connecting" with ICE connected
+  // (about one run in twenty at eight workers; `state` in the result says
+  // so). The transport has done its part by then — the restart offer went out
+  // and was answered — so a retry is the honest response. Where the engine
+  // cannot do it at all, the probe says so and the case skips by name.
   test.describe.configure({ retries: 2 });
+
+  test.beforeEach(async ({ page }) => {
+    test.skip(
+      !(await page.evaluate(() => window.__factory.canRebuild())),
+      "engine cannot bring up a second loopback connection beside the first",
+    );
+  });
 
   test("the agent is heard again after the connection is rebuilt", async ({ page }) => {
     await page.mouse.click(1, 1);

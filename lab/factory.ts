@@ -21,7 +21,7 @@ import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 
 import { createVoqalizeTransport, attachTrackChangedHandler } from "../src/transport";
 import { VoqalizeMediaManager } from "../src/mediaManager";
-import { startInPageBot } from "./inPageBot";
+import { probeSecondConnection, startInPageBot } from "./inPageBot";
 
 interface Built {
   client: PipecatClient;
@@ -274,6 +274,9 @@ const factory = {
   keptState(): { outcome: string; hasLiveCall: boolean } {
     return { outcome: keptOutcome, hasLiveCall: kept?.transport.hasLiveCall ?? false };
   },
+
+  /** See `probeSecondConnection`. */
+  canRebuild: probeSecondConnection,
 
   /**
    * A real call to the in-page bot, then the path "dies": the transport's
