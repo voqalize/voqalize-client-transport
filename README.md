@@ -68,6 +68,45 @@ to handle:
   the same track and plays it again. An element you paused is left alone.
   [The measurement](docs/FINDINGS.md#android-chrome-stops-playing-a-taken-over-call).
 
+### Keep the call across page loads
+
+A full page load — a reload, or a link to another page of the same site —
+closes the connection. If your server holds a dropped call for a few seconds
+and takes the same request again as the same call, the next page can carry on
+where the last one stopped:
+
+```ts
+const transport = createVoqalizeTransport({ keepAcrossPageLoads: true, mediaManager });
+const client = new PipecatClient({ transport, enableMic: true });
+
+// On every page load:
+if (transport.hasLiveCall) await client.connect(); // rejoin, no arguments
+// …and from your "Start" button, as before:
+// await client.startBotAndConnect(...) or client.connect(params)
+
+// From your "End call" button:
+client.disconnectBot();
+await client.disconnect();
+```
+
+- The transport remembers, in `sessionStorage`, the request each `connect()`
+  used: per tab, so a second tab starts its own call. A request you pass to
+  `connect()` always wins.
+- It forgets the call on `disconnectBot()`, and when the server refuses an
+  offer (a 4xx), so a call that ended while nobody was looking makes
+  `connect()` reject once and `hasLiveCall` turn false.
+- It never connects by itself, and never hangs up when the page unloads. Don't
+  call `client.disconnect()` on `pagehide` either: that is the page load you
+  want to survive, and the server ends an abandoned call on its own.
+- Rejoin on load without asking for a tap. Where the browser holds the
+  agent's audio back on the new page, the manager plays it on the user's next
+  tap or key press.
+- The saved request carries the session's credentials. It never leaves the
+  origin, but anything that can run script on your page can read it, as it can
+  read the live client.
+- A page restored from the back/forward cache brings back a client whose
+  connection is gone: reload it (`pageshow` with `event.persisted`).
+
 ### If you build your transport somewhere else
 
 Use the manager directly — but wire it, or mid-call device switches will never

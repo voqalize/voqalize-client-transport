@@ -86,3 +86,43 @@ test("the playout guard leaves a healthy call alone", async ({ page }) => {
   expect(result.samplesAdvanced).toBe(true);
   expect(result.recoveries).toEqual([]);
 });
+
+test("keepAcrossPageLoads rejoins across a real reload, and forgets a refused call", async ({
+  page,
+}) => {
+  const offers: Array<{ authorization: string | null; pcId: unknown }> = [];
+  let answer = 0; // 0: hold the offer, as a slow server would; else the status.
+  await page.route("**/__offer", async (route) => {
+    const body = route.request().postDataJSON() as { pc_id?: unknown };
+    offers.push({
+      authorization: await route.request().headerValue("authorization"),
+      pcId: body.pc_id,
+    });
+    if (answer) await route.fulfill({ status: answer, body: "{}" });
+  });
+  const endpoint = "http://127.0.0.1:5183/__offer";
+
+  expect(await page.evaluate(() => window.__factory.keptPage())).toBe(false);
+  await page.evaluate(
+    (endpoint) => window.__factory.keptConnect({ endpoint, token: "t1" }),
+    endpoint,
+  );
+  await expect.poll(() => offers.length).toBe(1);
+
+  // The page goes away mid-call. Nothing hangs up; the next page finds the call.
+  await page.reload();
+  answer = 410;
+  expect(await page.evaluate(() => window.__factory.keptPage())).toBe(true);
+  await page.evaluate(() => window.__factory.keptConnect(null));
+  await expect
+    .poll(() => page.evaluate(() => window.__factory.keptState().outcome))
+    .toMatch(/^rejected/);
+
+  // The same request, as a fresh offer: no peer-connection id.
+  expect(offers[1]).toEqual({ authorization: "Bearer t1", pcId: null });
+  expect(offers.length).toBe(2);
+  // The server refused it, so the call is gone, and the next page starts none.
+  expect(await page.evaluate(() => window.__factory.keptState().hasLiveCall)).toBe(false);
+  await page.reload();
+  expect(await page.evaluate(() => window.__factory.keptPage())).toBe(false);
+});

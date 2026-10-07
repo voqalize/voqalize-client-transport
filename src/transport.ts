@@ -42,6 +42,7 @@ import { logger } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 import type { SmallWebRTCTransportConstructorOptions } from "@pipecat-ai/small-webrtc-transport";
 
+import { keepCallAcrossPageLoads, sessionCallStore } from "./keepCall";
 import { VoqalizeMediaManager } from "./mediaManager";
 import type { LocalTrackChangedEvent } from "./mediaManager";
 import type { MediaManagerSurface } from "./pipecatTypes";
@@ -74,6 +75,16 @@ export interface VoqalizeTransportOptions extends Omit<
    * `replaceTrack` wiring described above.
    */
   mediaManager?: VoqalizeMediaManager;
+  /**
+   * Keep the call when the page reloads or the user follows a link on the same
+   * site. The transport remembers, for this tab, the request it connected
+   * with; on the next page, `connect()` with no arguments rejoins that call,
+   * and `hasLiveCall` says there is one to rejoin. `disconnectBot()` ends the
+   * call and forgets it, and so does a server that refuses the rejoin. The
+   * transport never connects by itself and never hangs up on page unload.
+   * Default false.
+   */
+  keepAcrossPageLoads?: boolean;
 }
 
 /**
@@ -94,8 +105,16 @@ export interface VoqalizeTransportOptions extends Omit<
  */
 export function createVoqalizeTransport(
   options: VoqalizeTransportOptions = {},
-): SmallWebRTCTransport {
-  const { mediaManager, ...transportOptions } = options;
+): SmallWebRTCTransport & {
+  /**
+   * With `keepAcrossPageLoads`, whether this tab holds a call it has not
+   * ended: call `connect()` with no arguments to rejoin it. The server may
+   * have ended it since, in which case `connect()` rejects and this turns
+   * false. Always false without the option.
+   */
+  readonly hasLiveCall: boolean;
+} {
+  const { mediaManager, keepAcrossPageLoads = false, ...transportOptions } = options;
   const manager = mediaManager ?? new VoqalizeMediaManager();
 
   const transport = new SmallWebRTCTransport({
@@ -110,7 +129,13 @@ export function createVoqalizeTransport(
   });
 
   attachTrackChangedHandler(transport, manager);
-  return transport;
+  const hasLiveCall = keepAcrossPageLoads
+    ? keepCallAcrossPageLoads(transport, sessionCallStore())
+    : () => false;
+  return Object.defineProperty(transport, "hasLiveCall", {
+    get: hasLiveCall,
+    enumerable: true,
+  }) as ReturnType<typeof createVoqalizeTransport>;
 }
 
 /**

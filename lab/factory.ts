@@ -31,6 +31,11 @@ interface Built {
 
 let built: Built | null = null;
 
+/** The page's `keepAcrossPageLoads` client, and how its `connect()` came out. */
+let kept: { client: PipecatClient; transport: ReturnType<typeof createVoqalizeTransport> } | null =
+  null;
+let keptOutcome = "none";
+
 function current(): Built {
   if (!built) throw new Error("call build() first");
   return built;
@@ -232,6 +237,41 @@ const factory = {
     await context.close();
     await manager.destroy();
     return { recoveries, paused, samplesAdvanced: after > before };
+  },
+
+  /**
+   * A page of an app that keeps its call: a transport with
+   * `keepAcrossPageLoads`, and `connect()` the way the app calls it on load,
+   * with `params` on a first page and nothing on the pages after it. The
+   * offer endpoint is a route the test answers.
+   */
+  keptPage(): boolean {
+    const transport = createVoqalizeTransport({ keepAcrossPageLoads: true });
+    const client = new PipecatClient({ transport, enableMic: false, enableCam: false });
+    kept = { client, transport };
+    return transport.hasLiveCall;
+  },
+
+  async keptConnect(params: { endpoint: string; token: string } | null): Promise<void> {
+    if (!kept) throw new Error("call keptPage() first");
+    const { client } = kept;
+    // With no mic and no camera, client-js skips its implicit initDevices().
+    await client.initDevices();
+    keptOutcome = "pending";
+    const request = params && {
+      webrtcRequestParams: {
+        endpoint: params.endpoint,
+        headers: new Headers({ authorization: `Bearer ${params.token}` }),
+      },
+    };
+    client.connect(request ?? undefined).then(
+      () => (keptOutcome = "resolved"),
+      (error: unknown) => (keptOutcome = `rejected: ${String(error)}`),
+    );
+  },
+
+  keptState(): { outcome: string; hasLiveCall: boolean } {
+    return { outcome: keptOutcome, hasLiveCall: kept?.transport.hasLiveCall ?? false };
   },
 };
 

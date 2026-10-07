@@ -23,6 +23,15 @@ internal. 0.2.0 is deprecated.
   `setLocalTrackChangedHandler()`, `destroy()`, `encodingPolicy()`,
   `requestedMicId`, `requestedCamId` and `captureTracks()` on the manager.
 
+### Added
+
+- `createVoqalizeTransport({ keepAcrossPageLoads: true })` keeps a call
+  through a reload or a link to another page on the same site: the transport
+  remembers, for the tab, the request it connected with, and `connect()` with
+  no arguments rejoins it. `transport.hasLiveCall` says there is one.
+  `disconnectBot()` and a refused rejoin forget it. Nothing connects or hangs
+  up by itself.
+
 ### Changed
 
 - A bound element the browser refused to play is retried from the user's next
