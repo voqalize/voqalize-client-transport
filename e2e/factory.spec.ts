@@ -148,7 +148,7 @@ test.describe("a rebuilt connection", () => {
   test("the agent is heard again after the connection is rebuilt", async ({ page }) => {
     await page.mouse.click(1, 1);
     const result = await page.evaluate(() => window.__factory.rebuildCall(true, "failed"));
-    expect(result).toMatchObject({
+    expect(result, JSON.stringify(result)).toMatchObject({
       firstHeard: true,
       rebuilt: true,
       restart: true,
@@ -162,7 +162,11 @@ test.describe("a rebuilt connection", () => {
   test("the stock transport is not heard after a rebuild", async ({ page }) => {
     await page.mouse.click(1, 1);
     const result = await page.evaluate(() => window.__factory.rebuildCall(false, "failed"));
-    expect(result).toMatchObject({ firstHeard: true, rebuilt: true, newHeard: false });
+    expect(result, JSON.stringify(result)).toMatchObject({
+      firstHeard: true,
+      rebuilt: true,
+      newHeard: false,
+    });
   });
 
   test("a disconnected path is rebuilt after the short grace, not five seconds", async ({
@@ -170,7 +174,7 @@ test.describe("a rebuilt connection", () => {
   }) => {
     await page.mouse.click(1, 1);
     const result = await page.evaluate(() => window.__factory.rebuildCall(true, "disconnected"));
-    expect(result).toMatchObject({ rebuilt: true, newHeard: true });
+    expect(result, JSON.stringify(result)).toMatchObject({ rebuilt: true, newHeard: true });
     expect(result.offerAfterMs).toBeGreaterThanOrEqual(1_400);
     expect(result.offerAfterMs).toBeLessThan(4_000);
   });
