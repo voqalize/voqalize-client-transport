@@ -167,6 +167,72 @@ const factory = {
     await manager.destroy();
     return carried !== null && carried === published;
   },
+
+  /**
+   * The playout guard's false-positive check: a real remote audio track,
+   * carried over a loopback call and played on a bound element, for `ms`. A
+   * healthy element must never be re-attached. The sound is an oscillator, so
+   * the check needs no capture device and runs in every engine.
+   */
+  async healthyPlayout(ms: number): Promise<{
+    recoveries: string[];
+    paused: boolean;
+    samplesAdvanced: boolean;
+  }> {
+    const recoveries: string[] = [];
+    const manager = new VoqalizeMediaManager({
+      onPlaybackRecovered: (reason) => recoveries.push(reason),
+    });
+    const context = new AudioContext();
+    const oscillator = context.createOscillator();
+    const destination = context.createMediaStreamDestination();
+    oscillator.connect(destination);
+    oscillator.start();
+
+    const send = new RTCPeerConnection();
+    const receive = new RTCPeerConnection();
+    send.onicecandidate = (e) => void receive.addIceCandidate(e.candidate ?? undefined);
+    receive.onicecandidate = (e) => void send.addIceCandidate(e.candidate ?? undefined);
+    const arrived = new Promise<MediaStreamTrack>((resolve) => {
+      receive.ontrack = (e) => resolve(e.track);
+    });
+    send.addTrack(destination.stream.getAudioTracks()[0]!);
+    await send.setLocalDescription(await send.createOffer());
+    await receive.setRemoteDescription(send.localDescription!);
+    await receive.setLocalDescription(await receive.createAnswer());
+    await send.setRemoteDescription(receive.localDescription!);
+
+    manager.setStatsSource(() => receive.getStats());
+    const audio = document.createElement("audio");
+    document.body.append(audio);
+    const unbind = manager.bindOutputElement(audio);
+    const track = await arrived;
+    audio.srcObject = new MediaStream([track]);
+    await audio.play().catch(() => undefined);
+
+    const samples = async () => {
+      let total = 0;
+      (await receive.getStats()).forEach((stat: Record<string, unknown>) => {
+        if (stat.type === "inbound-rtp" && typeof stat.totalSamplesReceived === "number") {
+          total = stat.totalSamplesReceived;
+        }
+      });
+      return total;
+    };
+    const before = await samples();
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    const after = await samples();
+    const paused = audio.paused;
+
+    unbind();
+    audio.remove();
+    send.close();
+    receive.close();
+    oscillator.stop();
+    await context.close();
+    await manager.destroy();
+    return { recoveries, paused, samplesAdvanced: after > before };
+  },
 };
 
 export type Factory = typeof factory;

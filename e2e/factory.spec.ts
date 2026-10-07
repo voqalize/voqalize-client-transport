@@ -77,3 +77,12 @@ for (const withGetter of [true, false]) {
 test("attachTrackChangedHandler wires a transport the factory did not build", async ({ page }) => {
   expect(await page.evaluate(() => window.__factory.attachByHand())).toBe(true);
 });
+
+test("the playout guard leaves a healthy call alone", async ({ page }) => {
+  // A real click first, so no engine's autoplay policy decides the outcome.
+  await page.mouse.click(1, 1);
+  const result = await page.evaluate(() => window.__factory.healthyPlayout(5_000));
+  expect(result.paused).toBe(false);
+  expect(result.samplesAdvanced).toBe(true);
+  expect(result.recoveries).toEqual([]);
+});

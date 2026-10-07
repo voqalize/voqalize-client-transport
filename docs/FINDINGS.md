@@ -139,8 +139,27 @@ It happened with pipecat's default (daily) media manager and with this one,
 so it is the element and not the capture side. A cold start on the same phone
 does not do it. Re-attaching the same track (a new `MediaStream` on
 `srcObject`, then `play()`) brings the audio back at once; a watchdog that did
-this after 300 ms of stall closed the gap on the phone. That is the
+this after 300 ms of stall closed the gap on the phone, and at 120 ms and 5
+packets "the voice comes in noticeably sooner" (2026-10-07). That is the
 `PlayoutGuard`.
+
+What the guard can rely on, measured in Chromium, Firefox and WebKit
+(2026-10-07):
+
+- Only Chromium ties `totalSamplesReceived` to playout. Firefox and WebKit
+  advance it with no sink at all, so the stall signal never fires there and
+  the element's `error` is the only one. The stall path is a Chromium
+  optimisation; the error path is the guard.
+- `trackIdentifier` on `inbound-rtp` equals the receiver's `track.id` in every
+  engine.
+- `loadstart` is queued as a task in every engine, `srcObject = null` fires
+  none, and two assignments in one task fire one. So the guard tells its own
+  re-attach from the app's by the stream's identity, never by the event.
+- Stock pipecat servers send packets through silence; a server that stops
+  sending between talkspurts sends none. Silence is therefore not a stall
+  either way: with packets the element plays them, without them there is
+  nothing to stall on.
+- `getStats()` costs a median of about 0.4 ms.
 
 ## WebKit grants exactly one gesture-free `getDisplayMedia` per page
 

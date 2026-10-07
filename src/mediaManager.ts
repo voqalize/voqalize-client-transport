@@ -215,8 +215,7 @@ export interface VoqalizeMediaManagerOptions {
   /** Called each time the playout guard re-attaches a bound element's source. */
   onPlaybackRecovered?: (reason: PlayoutRecoveryReason) => void;
   /** The guard's tuning, or `false` to turn it off. */
-  playoutGuard?:
-    false | Pick<PlayoutGuardOptions, "pollMs" | "stillMs" | "minPackets" | "maxRecoveries">;
+  playoutGuard?: false | Omit<PlayoutGuardOptions, "stats" | "makeStream" | "play" | "onRecovered">;
   /**
    * Builds the stream a recovered element is re-attached to. Defaults to
    * `new MediaStream(tracks)`; required only where there is no `MediaStream`.

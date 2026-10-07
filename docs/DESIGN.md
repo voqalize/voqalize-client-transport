@@ -125,14 +125,20 @@ keep forever for a case the next tap answers anyway.
 **Playout recovery.** The element can also stop playing a track it was
 playing, with no refusal to catch (see
 [FINDINGS](FINDINGS.md#android-chrome-stops-playing-a-taken-over-call)). Each
-bound element gets a `PlayoutGuard` that reads the receiver's `inbound-rtp`
-stats: packets for the element's track arriving while `totalSamplesReceived`
-stands still is a stall, and the guard re-attaches the same track in a new
-stream and plays it. The element's `error` triggers the same re-attach, one
-task later because Chrome pauses the element after the event. A stall needs
-packets, so silence never counts; a paused element is skipped; re-attaches are
-capped per source the app attaches. The stats come from the transport's peer
-connection, which `attachTrackChangedHandler` hands the manager.
+bound element gets a `PlayoutGuard`. The element's `error` (any code but an
+abort) re-attaches every live track of its source in a new stream and plays
+it, one task later because Chrome pauses the element after the event. In
+Chromium it also reads the receiver's `inbound-rtp` stats: packets for the
+element's track arriving while `totalSamplesReceived` stands still across two
+reads is a stall. The stall is judged tightly (120 ms, 5 packets, read every
+100 ms) for 2 s after the source's packets start, where the measured failure
+lives, and loosely (300 ms, 10 packets, every 250 ms) after. A paused element
+is skipped, and a read the app overtook (a pause, a new source) is dropped.
+Re-attaches back off (500 ms, doubling) and are capped per source the app
+attaches; the guard knows its own stream by identity, not by `loadstart`. An
+engine whose stats lack either counter gets the error path only. The stats
+come from the transport's peer connection, which `attachTrackChangedHandler`
+hands the manager.
 
 ## Layout
 
