@@ -662,6 +662,25 @@ export const CONTRACT_CASES: ContractCase[] = [
   },
 
   {
+    name: "a blocked element is retried when the microphone opens",
+    reset: { enableMic: false },
+    async run({ lab }) {
+      await lab.initialize();
+      await lab.blockAutoplay(true);
+      await lab.bindOutputElement();
+      await waitFor(async () => lab.playbackBlocked(), { message: "never blocked" });
+
+      // No gesture: an engine that lets capture unlock playback gets its retry.
+      await lab.blockAutoplay(false);
+      await lab.enableMic(true);
+      await waitFor(async () => !(await lab.playbackBlocked()), {
+        message: "opening the mic did not retry playback",
+      });
+      deepEqual(await lab.playbackEvents(), ["blocked", "playing"]);
+    },
+  },
+
+  {
     name: "an element that unbinds while blocked releases the blocked state",
     async run({ lab }) {
       await lab.initialize();

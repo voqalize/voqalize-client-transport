@@ -98,9 +98,13 @@ await client.disconnect();
 - It never connects by itself, and never hangs up when the page unloads. Don't
   call `client.disconnect()` on `pagehide` either: that is the page load you
   want to survive, and the server ends an abandoned call on its own.
-- Rejoin on load without asking for a tap. Where the browser holds the
-  agent's audio back on the new page, the manager plays it on the user's next
-  tap or key press.
+- Rejoin on load without asking for a tap, with the microphone on: an open
+  microphone is what lets the new page play the agent without one. Initialize
+  devices before `connect()`; for a user who was muted, disable the mic after
+  it opens rather than never opening it. Where the browser still holds the
+  agent's audio back, the manager plays it when the mic opens or on the user's
+  next tap or key press.
+  [The measurement](docs/FINDINGS.md#a-page-load-mid-call-plays-without-a-tap-when-the-mic-is-open).
 - The saved request carries the session's credentials. It never leaves the
   origin, but anything that can run script on your page can read it, as it can
   read the live client.

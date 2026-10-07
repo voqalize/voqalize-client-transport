@@ -948,6 +948,13 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       if (track) await this.install(slot, track);
     }
     await this.refreshSelectedDevices(slots);
+    // An open microphone is what some engines weigh when they decide autoplay:
+    // WebKit plays an element it refused once capture is live, with no gesture.
+    // Chrome does not, so the gesture retry stays armed either way.
+    // [The measurement](../docs/FINDINGS.md#a-page-load-mid-call-plays-without-a-tap-when-the-mic-is-open)
+    if (this.playbackBlocked && slots.some((slot) => slot.kind === "audio")) {
+      void this.resumePlayback();
+    }
   }
 
   /** Install a freshly-acquired capture track and publish a clone of it. */

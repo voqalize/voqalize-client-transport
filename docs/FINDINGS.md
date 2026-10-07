@@ -161,6 +161,32 @@ What the guard can rely on, measured in Chromium, Firefox and WebKit
   nothing to stall on.
 - `getStats()` costs a median of about 0.4 ms.
 
+## A page load mid-call plays without a tap when the mic is open
+
+What `keepAcrossPageLoads` leans on: the page after a reload or a link
+rejoins the call with no tap, and the agent's audio has to play. Measured
+2026-10-07 on the desktop engines, fresh profiles, a fake microphone with
+permission granted, a live call on the dev harness, nothing touching the new
+page until a single read 8 s after it loaded (a probe through Playwright's
+`page.evaluate` counts as a gesture in Chromium and would void the run).
+
+| Engine  | How the page changed | Mic opened              | Agent's audio                                                    |
+| ------- | -------------------- | ----------------------- | ---------------------------------------------------------------- |
+| Chrome  | link click           | first                   | plays (user activation carries over)                             |
+| Chrome  | reload               | first                   | plays, no user activation                                        |
+| Chrome  | reload               | after the agent's track | refused; a later `play()`, mic open, still refused               |
+| Firefox | reload or link       | first or after          | plays                                                            |
+| WebKit  | reload or link       | first                   | plays                                                            |
+| WebKit  | reload               | after the agent's track | refused, then plays on a gesture-free retry once the mic is open |
+
+So: rejoin with the microphone on, and open it before the agent's audio is
+attached; a user who was muted should still capture and then disable. Chrome
+decides once, when the element first plays. WebKit reconsiders, so the
+manager retries a refused element when the microphone opens. Anything still
+refused is retried on the next tap or key press.
+
+Not measured here: Android Chrome and iOS Safari.
+
 ## WebKit grants exactly one gesture-free `getDisplayMedia` per page
 
 Measured in Playwright's WebKit on macOS, two calls in one `page.evaluate`:

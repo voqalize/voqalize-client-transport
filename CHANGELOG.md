@@ -34,8 +34,9 @@ internal. 0.2.0 is deprecated.
 
 ### Changed
 
-- A bound element the browser refused to play is retried from the user's next
-  `pointerdown` or `keydown` on the page, by the manager. No app code.
+- A bound element the browser refused to play is retried when the microphone
+  opens, and from the user's next `pointerdown` or `keydown` on the page, by
+  the manager. No app code.
 - Playout recovery is judged tightly for 2 s after the agent's packets start
   (120 ms still, 5 packets) and loosely after (300 ms, 10 packets), so the
   measured Android failure is answered sooner and a healthy call later is left
