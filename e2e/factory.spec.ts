@@ -126,3 +126,44 @@ test("keepAcrossPageLoads rejoins across a real reload, and forgets a refused ca
   await page.reload();
   expect(await page.evaluate(() => window.__factory.keptPage())).toBe(false);
 });
+
+// The network changing under a call: a real transport, a real rebuild, and an
+// in-page bot on the far end (`lab/inPageBot.ts`).
+test.describe("a rebuilt connection", () => {
+  // WebKit, with both ends in one page and several workers, now and then
+  // leaves the new connection's DTLS at "connecting" with ICE connected
+  // (seen in about one run in twenty at eight workers; `state` in the
+  // result says so). The transport has done its part by then — the restart
+  // offer went out and was answered — so a retry is the honest response.
+  test.describe.configure({ retries: 2 });
+
+  test("the agent is heard again after the connection is rebuilt", async ({ page }) => {
+    await page.mouse.click(1, 1);
+    const result = await page.evaluate(() => window.__factory.rebuildCall(true, "failed"));
+    expect(result).toMatchObject({
+      firstHeard: true,
+      rebuilt: true,
+      restart: true,
+      newHeard: true,
+    });
+  });
+
+  // The control. The stock transport loses the new connection's audio
+  // (pipecat 1.10.6 through 1.10.8; `src/reconnect.ts`). When this starts
+  // failing, pipecat has fixed it, and the workaround can go.
+  test("the stock transport is not heard after a rebuild", async ({ page }) => {
+    await page.mouse.click(1, 1);
+    const result = await page.evaluate(() => window.__factory.rebuildCall(false, "failed"));
+    expect(result).toMatchObject({ firstHeard: true, rebuilt: true, newHeard: false });
+  });
+
+  test("a disconnected path is rebuilt after the short grace, not five seconds", async ({
+    page,
+  }) => {
+    await page.mouse.click(1, 1);
+    const result = await page.evaluate(() => window.__factory.rebuildCall(true, "disconnected"));
+    expect(result).toMatchObject({ rebuilt: true, newHeard: true });
+    expect(result.offerAfterMs).toBeGreaterThanOrEqual(1_400);
+    expect(result.offerAfterMs).toBeLessThan(4_000);
+  });
+});

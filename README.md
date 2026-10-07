@@ -148,6 +148,13 @@ The package exports `createVoqalizeTransport`, `VoqalizeMediaManager`,
   `enableMic`/`updateCam` as returning `void`, so the transport never awaits a
   device switch and a user double-clicking a toggle would otherwise interleave
   two `getUserMedia` calls against one device.
+- **Keeps the agent audible when the network changes.** pipecat's transport
+  rebuilds the peer connection when the path dies, and then never reports the
+  new connection's audio, so an app that plays the agent on `trackStarted`
+  hears nothing for the rest of the call. This keeps that report, and rebuilds
+  after 1.5 s of ICE `disconnected` instead of 5 s, or at once when the phone
+  moves between Wi-Fi and cellular. `attachTrackChangedHandler()` installs it
+  too.
 - **Recovers from the things that actually happen.** A device that vanishes
   mid-acquire, a track that mutes and never unmutes, a `devicechange` burst
   Chrome fires before `enumerateDevices()` settles, a headset unplugged
@@ -164,7 +171,8 @@ The package exports `createVoqalizeTransport`, `VoqalizeMediaManager`,
   `userStartedSpeaking()` and `bufferBotAudio()` are inert here; VAD belongs on
   the server.
 - **No transport of its own.** Signalling, ICE, reconnection and renegotiation
-  are all still pipecat's.
+  are all still pipecat's; the network-change fix above changes when pipecat
+  rebuilds and what it reports, not how.
 
 ## Requirements
 

@@ -44,6 +44,7 @@ import type { SmallWebRTCTransportConstructorOptions } from "@pipecat-ai/small-w
 
 import { keepCallAcrossPageLoads, sessionCallStore } from "./keepCall";
 import { VoqalizeMediaManager } from "./mediaManager";
+import { reconnectOnNetworkChange } from "./reconnect";
 import type { LocalTrackChangedEvent } from "./mediaManager";
 import type { MediaManagerSurface } from "./pipecatTypes";
 
@@ -141,7 +142,8 @@ export function createVoqalizeTransport(
 /**
  * Wire the manager's track changes to the transport's senders — the half of
  * the injection the stock transport only performs for its own default — and
- * lend the manager's playout guard the peer connection's stats.
+ * lend the manager's playout guard the peer connection's stats. It also
+ * keeps the agent audible across a network change (`reconnect.ts`).
  *
  * Exported because an app that has already built a `SmallWebRTCTransport` some
  * other way (a framework wrapper, an existing factory of its own) still needs
@@ -152,6 +154,10 @@ export function attachTrackChangedHandler(
   manager: VoqalizeMediaManager,
 ): void {
   const internals = transport as unknown as TransportInternals;
+
+  // The agent's audio back after a network change, and sooner. See
+  // `reconnect.ts`.
+  reconnectOnNetworkChange(transport);
 
   // The playout guard's view of the agent's audio: packets in against samples
   // played, read off whichever peer connection is current. See

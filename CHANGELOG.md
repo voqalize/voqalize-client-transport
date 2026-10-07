@@ -5,6 +5,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-10-07
+
+### Fixed
+
+- The agent is heard again after the network changes under a call. When the
+  path dies (a phone leaving Wi-Fi for cellular), pipecat's transport rebuilds
+  the peer connection, and closing the old one dropped the new connection's
+  audio from its bookkeeping, so `trackStarted` never fired for it and an app
+  that plays the agent from `trackStarted` stayed silent while the transcript
+  kept coming. Stock pipecat 1.10.6 through 1.10.8 all do this; the fix is
+  applied to the transport instance, without forking it.
+- A dead path is rebuilt sooner: after 1.5 s of ICE `disconnected` rather than
+  pipecat's 5 s, and at once when the browser reports a move between networks
+  (`navigator.connection.type`, which Android Chrome reports) or comes back
+  online. Nothing is rebuilt while the browser is offline.
+
+Both are installed by `createVoqalizeTransport()` and by
+`attachTrackChangedHandler()`.
+
 ## [0.3.0] — 2026-10-07
 
 The public surface is now only what an application needs; everything else is
@@ -103,7 +122,8 @@ First release.
   chromium/firefox/webkit with real ones — plus a controllable UDP relay that
   breaks and moves the network path under a live call.
 
-[Unreleased]: https://github.com/voqalize/voqalize-client-transport/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/voqalize/voqalize-client-transport/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/voqalize/voqalize-client-transport/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/voqalize/voqalize-client-transport/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/voqalize/voqalize-client-transport/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/voqalize/voqalize-client-transport/releases/tag/v0.1.0

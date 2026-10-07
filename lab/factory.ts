@@ -15,12 +15,13 @@
  * what is exercised is the wiring, which is what the factory is.
  */
 
-import { PipecatClient } from "@pipecat-ai/client-js";
+import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 
-import type { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
+import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 
 import { createVoqalizeTransport, attachTrackChangedHandler } from "../src/transport";
 import { VoqalizeMediaManager } from "../src/mediaManager";
+import { startInPageBot } from "./inPageBot";
 
 interface Built {
   client: PipecatClient;
@@ -272,6 +273,95 @@ const factory = {
 
   keptState(): { outcome: string; hasLiveCall: boolean } {
     return { outcome: keptOutcome, hasLiveCall: kept?.transport.hasLiveCall ?? false };
+  },
+
+  /**
+   * A real call to the in-page bot, then the path "dies": the transport's
+   * peer connection reports `trigger` as its ICE state, which is what a phone
+   * leaving Wi-Fi produces. The transport rebuilds the connection with the
+   * stock code, and the question is whether the agent is heard again, which
+   * for an app means `trackStarted` for the new connection's audio.
+   *
+   * `ours` false is the stock transport with our manager and nothing else of
+   * ours, so the test can show the defect it guards against.
+   */
+  async rebuildCall(
+    ours: boolean,
+    trigger: "failed" | "disconnected",
+  ): Promise<{
+    firstHeard: boolean;
+    rebuilt: boolean;
+    restart: unknown;
+    offerAfterMs: number | null;
+    newHeard: boolean;
+    /** What a failure needs to be read: the offers, and where the connection got to. */
+    offers: number;
+    state: string;
+  }> {
+    const bot = await startInPageBot();
+    const options = {
+      webrtcRequestParams: { endpoint: bot.endpoint },
+      waitForICEGathering: true,
+    };
+    const manager = new VoqalizeMediaManager();
+    const transport = ours
+      ? createVoqalizeTransport({ ...options, mediaManager: manager })
+      : new SmallWebRTCTransport({ ...options, mediaManager: manager as never });
+    const client = new PipecatClient({ transport, enableMic: false, enableCam: false });
+    const heard: string[] = [];
+    client.on(RTVIEvent.TrackStarted, (track, participant) => {
+      if (!participant?.local && track.kind === "audio") heard.push(track.id);
+    });
+    const internals = transport as unknown as {
+      pc: RTCPeerConnection | null;
+      isReconnecting: boolean;
+    };
+    const until = async (done: () => boolean, ms: number) => {
+      const end = performance.now() + ms;
+      while (!done() && performance.now() < end) await new Promise((r) => setTimeout(r, 50));
+      return done();
+    };
+    const remoteAudio = (pc: RTCPeerConnection | null) =>
+      pc?.getTransceivers()[0]?.receiver.track.id ?? null;
+
+    try {
+      await client.initDevices();
+      void client.connect().catch(() => {});
+      const firstHeard = await until(() => heard.length > 0, 10_000);
+      // With `waitForICEGathering`, the transport renegotiates once more when
+      // gathering ends during checking, and a rebuild asked for meanwhile is
+      // skipped. Let that settle, or the trigger below can land in it.
+      await until(
+        () => !internals.isReconnecting && internals.pc?.signalingState === "stable",
+        5_000,
+      );
+
+      const old = internals.pc!;
+      Object.defineProperty(old, "iceConnectionState", { get: () => trigger });
+      const at = performance.now();
+      old.dispatchEvent(new Event("iceconnectionstatechange"));
+
+      const rebuilt = await until(
+        () => internals.pc !== old && internals.pc?.connectionState === "connected",
+        10_000,
+      );
+      const second = bot.offers[1];
+      const fresh = remoteAudio(internals.pc);
+      const newHeard = rebuilt && (await until(() => heard.includes(fresh!), 5_000));
+      return {
+        firstHeard,
+        rebuilt,
+        restart: second?.restart,
+        offerAfterMs: second ? Math.round(second.at - at) : null,
+        newHeard,
+        offers: bot.offers.length,
+        state: `${internals.pc === old ? "old" : "new"} ${internals.pc?.connectionState}/${internals.pc?.iceConnectionState}`,
+      };
+    } finally {
+      await client.disconnect().catch(() => {});
+      await manager.destroy();
+      await bot.stop();
+    }
   },
 };
 
