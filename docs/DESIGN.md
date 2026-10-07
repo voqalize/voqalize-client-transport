@@ -62,7 +62,7 @@ option.
    interface declares `enableMic`/`updateCam` as returning `void` and never
    awaits them. Two operations are deliberately outside it: `getDisplayMedia`
    must stay inside the caller's user-activation window (only the _install_ is
-   queued, not the _prompt_), and so must `resumePlayback()`.
+   queued, not the _prompt_), and so must the autoplay retry.
 
 3. **One `getUserMedia` call when both audio and video are wanted.** WebKit
    stops an earlier track when a second `getUserMedia` targets the same device
@@ -116,8 +116,11 @@ selected device disappears and the manager falls back to the default.
 
 **Blocked autoplay.** A browser that has not seen a user gesture refuses to
 play, silently and per element. The manager owns this because it owns the
-elements: it detects the refusal, reports it through `onPlaybackBlocked`, and
-`resumePlayback()` retries every bound element from inside a real click.
+elements: it detects the refusal and, while anything is refused, listens on the
+document for the next `pointerdown` or `keydown` (capture phase, so an app that
+stops propagation cannot swallow it) and retries every refused element inside
+that event. No app code: a "tap to enable audio" affordance would be an API to
+keep forever for a case the next tap answers anyway.
 
 **Playout recovery.** The element can also stop playing a track it was
 playing, with no refusal to catch (see

@@ -5,6 +5,29 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+The public surface is now only what an application needs; everything else is
+internal. 0.2.0 is deprecated.
+
+### Removed (breaking)
+
+- Every export but `createVoqalizeTransport`, `VoqalizeMediaManager`,
+  `attachTrackChangedHandler` and the `VoqalizeTransportOptions` type: the
+  `PlayoutGuard` class and its types, `normalizeDeviceError`, the
+  `ENCODING_POLICY`, `CAMERA_CONSTRAINTS` and `SCREEN_CONSTRAINTS` constants,
+  and the platform and pipecat structural types.
+- `createVoqalizeTransport({ media })` and `transport.voqalizeMedia`. Construct
+  the manager and pass it as `mediaManager` to reach `bindOutputElement()`.
+- The manager's options. `new VoqalizeMediaManager()` takes none.
+- `onPlaybackBlocked`, `onPlaybackRecovered`, `playoutGuard` and
+  `resumePlayback()`, along with `playbackBlocked`, `setStatsSource()`,
+  `setLocalTrackChangedHandler()`, `destroy()`, `encodingPolicy()`,
+  `requestedMicId`, `requestedCamId` and `captureTracks()` on the manager.
+
+### Changed
+
+- A bound element the browser refused to play is retried from the user's next
+  `pointerdown` or `keydown` on the page, by the manager. No app code.
+
 ## [0.2.0] — 2026-10-06
 
 ### Added

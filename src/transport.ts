@@ -43,7 +43,7 @@ import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 import type { SmallWebRTCTransportConstructorOptions } from "@pipecat-ai/small-webrtc-transport";
 
 import { VoqalizeMediaManager } from "./mediaManager";
-import type { LocalTrackChangedEvent, VoqalizeMediaManagerOptions } from "./mediaManager";
+import type { LocalTrackChangedEvent } from "./mediaManager";
 import type { MediaManagerSurface } from "./pipecatTypes";
 
 /**
@@ -68,30 +68,12 @@ export interface VoqalizeTransportOptions extends Omit<
   "mediaManager"
 > {
   /**
-   * Options for the media manager this transport will own.
-   *
-   * Ignored when `mediaManager` is supplied — pass one or the other.
-   */
-  media?: VoqalizeMediaManagerOptions;
-  /**
-   * Bring your own manager, already constructed. Use this when the app needs a
-   * reference to it (to call `bindOutputElement()` or `resumePlayback()`, say)
-   * before the transport exists. The factory still does the `replaceTrack`
-   * wiring described above.
+   * Bring your own manager, already constructed: the app needs a reference to
+   * it to call `bindOutputElement()`, often before the transport exists. Left
+   * out, the transport builds its own. Either way the factory does the
+   * `replaceTrack` wiring described above.
    */
   mediaManager?: VoqalizeMediaManager;
-}
-
-export interface VoqalizeTransport extends SmallWebRTCTransport {
-  /**
-   * The manager driving this transport's local media.
-   *
-   * Exposed because two of its capabilities have no pipecat equivalent and an
-   * app has to reach them: `bindOutputElement()` (speaker routing, and the
-   * `setSinkId` re-application that a device change needs) and
-   * `resumePlayback()` (the user gesture that answers a blocked autoplay).
-   */
-  readonly voqalizeMedia: VoqalizeMediaManager;
 }
 
 /**
@@ -110,9 +92,11 @@ export interface VoqalizeTransport extends SmallWebRTCTransport {
  * await client.connect();
  * ```
  */
-export function createVoqalizeTransport(options: VoqalizeTransportOptions = {}): VoqalizeTransport {
-  const { media, mediaManager, ...transportOptions } = options;
-  const manager = mediaManager ?? new VoqalizeMediaManager(media);
+export function createVoqalizeTransport(
+  options: VoqalizeTransportOptions = {},
+): SmallWebRTCTransport {
+  const { mediaManager, ...transportOptions } = options;
+  const manager = mediaManager ?? new VoqalizeMediaManager();
 
   const transport = new SmallWebRTCTransport({
     ...transportOptions,
@@ -126,14 +110,7 @@ export function createVoqalizeTransport(options: VoqalizeTransportOptions = {}):
   });
 
   attachTrackChangedHandler(transport, manager);
-
-  Object.defineProperty(transport, "voqalizeMedia", {
-    value: manager,
-    enumerable: false,
-    writable: false,
-  });
-
-  return transport as VoqalizeTransport;
+  return transport;
 }
 
 /**

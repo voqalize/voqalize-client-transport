@@ -17,13 +17,14 @@
 
 import { PipecatClient } from "@pipecat-ai/client-js";
 
+import type { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
+
 import { createVoqalizeTransport, attachTrackChangedHandler } from "../src/transport";
 import { VoqalizeMediaManager } from "../src/mediaManager";
-import type { VoqalizeTransport } from "../src/transport";
 
 interface Built {
   client: PipecatClient;
-  transport: VoqalizeTransport;
+  transport: SmallWebRTCTransport;
   manager: VoqalizeMediaManager;
   pc: RTCPeerConnection | null;
 }
@@ -52,7 +53,9 @@ const factory = {
       webrtcRequestParams: { endpoint: "http://127.0.0.1:5183/__never" },
     });
     const client = new PipecatClient({ transport, enableMic: true, enableCam: false });
-    built = { client, transport, manager: transport.voqalizeMedia, pc: null };
+    // The manager the transport holds; `injected()` proves it is ours.
+    const manager = (transport as unknown as { mediaManager: VoqalizeMediaManager }).mediaManager;
+    built = { client, transport, manager, pc: null };
   },
 
   async teardown(): Promise<void> {
@@ -72,11 +75,11 @@ const factory = {
    * actually loaded, from any origin but its own. The list must be empty —
    * nothing in the media path may fetch code at runtime.
    */
-  injected(): { sameObject: boolean; constructorName: string; foreignScripts: string[] } {
-    const { transport, manager } = current();
+  injected(): { ours: boolean; constructorName: string; foreignScripts: string[] } {
+    const { transport } = current();
     const held = (transport as unknown as { mediaManager: unknown }).mediaManager;
     return {
-      sameObject: held === manager,
+      ours: held instanceof VoqalizeMediaManager,
       constructorName: (held as object).constructor.name,
       foreignScripts: performance
         .getEntriesByType("resource")

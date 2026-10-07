@@ -629,6 +629,39 @@ export const CONTRACT_CASES: ContractCase[] = [
   },
 
   {
+    name: "a blocked element is retried on the next gesture, and only while blocked",
+    async run({ lab }) {
+      await lab.initialize();
+      await lab.blockAutoplay(true);
+      await lab.bindOutputElement();
+      await waitFor(async () => lab.playbackBlocked(), { message: "never blocked" });
+      const refused = (await lab.playAttempts())[0] ?? 0;
+
+      // A gesture into the same policy is a retry that fails, quietly.
+      await lab.gesture();
+      await waitFor(async () => ((await lab.playAttempts())[0] ?? 0) > refused, {
+        message: "the gesture did not retry playback",
+      });
+      ok(await lab.playbackBlocked());
+      deepEqual(await lab.playbackEvents(), ["blocked"], "and it is not re-announced");
+
+      // The gesture that lands: no app code in between.
+      await lab.blockAutoplay(false);
+      await lab.gesture();
+      await waitFor(async () => !(await lab.playbackBlocked()), {
+        message: "a gesture the browser allows did not resume playback",
+      });
+      deepEqual(await lab.playbackEvents(), ["blocked", "playing"]);
+
+      // Disarmed once nothing is blocked: later gestures touch nothing.
+      const attempts = (await lab.playAttempts())[0];
+      await lab.gesture();
+      await lab.gesture();
+      equal((await lab.playAttempts())[0], attempts, "an unblocked element is left alone");
+    },
+  },
+
+  {
     name: "an element that unbinds while blocked releases the blocked state",
     async run({ lab }) {
       await lab.initialize();

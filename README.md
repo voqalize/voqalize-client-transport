@@ -34,49 +34,39 @@ Everything else stays as it is. `client.enableMic()`, `client.updateCam()`,
 `onDeviceError` callbacks all behave the way pipecat documents them, because
 this is pipecat's own transport with one class swapped out.
 
-`createVoqalizeTransport` accepts every `SmallWebRTCTransport` option, plus
-`media` for the manager's own settings:
+`createVoqalizeTransport` accepts every `SmallWebRTCTransport` option. The
+manager has no settings of its own: the camera is released when the user turns
+it off (a camera light still on afterwards is a trust problem), and the
+microphone is held (re-acquiring it costs a gap in the conversation).
+
+### Play the agent on an element the manager knows
+
+`SmallWebRTCTransport` owns no playback element. Give the manager yours, and
+keep setting its `srcObject` from `onTrackStarted` as you do today:
 
 ```ts
-const transport = createVoqalizeTransport({
-  webrtcRequestParams: { endpoint: "https://your-server.example.com/api/offer" },
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
-  media: {
-    // The camera light staying on after the user turns the camera off is a
-    // trust problem, so the device is released by default. The microphone is
-    // held, because re-acquiring it costs a gap in the conversation.
-    releaseCamOnDisable: true,
-    releaseMicOnDisable: false,
-    onPlaybackBlocked: (blocked) => setShowTapToListen(blocked),
-  },
-});
-```
+import { VoqalizeMediaManager, createVoqalizeTransport } from "@voqalize/client-transport";
 
-### What pipecat has no channel for
-
-**Speaker routing.** `updateSpeaker()` selects a device; something has to apply
-it to the element that plays the bot. Hand the manager your audio element and
-it applies the current sink and re-applies it on every later change:
-
-```ts
-const detach = transport.voqalizeMedia.bindOutputElement(audioEl);
+const mediaManager = new VoqalizeMediaManager();
+const transport = createVoqalizeTransport({ mediaManager, webrtcRequestParams });
+const detach = mediaManager.bindOutputElement(audioEl);
 detach(); // on unmount
 ```
 
-**Blocked autoplay.** A browser that has not seen a user gesture refuses to
-play the bot's audio, silently. The manager detects the refusal, reports it
-through `media.onPlaybackBlocked`, and `resumePlayback()` retries every bound
-element from inside a real click.
+A bound element gets what pipecat has no channel for, with nothing for the app
+to handle:
 
-**An element that stops playing.** On Android Chrome, a page that takes over a
-live call can give the element the agent's track, resolve `play()`, and output
-nothing: packets arrive, the samples played stand still, and about a second in
-the element errors and pauses for good. A bound element is guarded: on that
-stall, or on the element's `error`, the manager re-attaches the same track and
-plays it again, and reports it through `media.onPlaybackRecovered`. Silence is
-never a stall (the server sends no packets while the agent is quiet), and an
-element you paused is left alone. `media.playoutGuard: false` turns it off.
-[The measurement](docs/FINDINGS.md#android-chrome-stops-playing-a-taken-over-call).
+- **Speaker routing.** It follows `updateSpeaker()`, now and on every later
+  change.
+- **Blocked autoplay.** A browser that has not seen a user gesture refuses to
+  play, silently. The manager retries from inside the user's next tap or key
+  press on the page.
+- **An element that stops playing.** On Android Chrome, a page that takes over
+  a live call can give the element the agent's track, resolve `play()`, and
+  output nothing: packets arrive, the samples played stand still, and about a
+  second in the element errors and pauses for good. The manager re-attaches
+  the same track and plays it again. An element you paused is left alone.
+  [The measurement](docs/FINDINGS.md#android-chrome-stops-playing-a-taken-over-call).
 
 ### If you build your transport somewhere else
 
@@ -91,6 +81,10 @@ const mediaManager = new VoqalizeMediaManager();
 const transport = new SmallWebRTCTransport({ ...yourOptions, mediaManager } as never);
 attachTrackChangedHandler(transport, mediaManager);
 ```
+
+The package exports `createVoqalizeTransport`, `VoqalizeMediaManager`,
+`attachTrackChangedHandler` and the `VoqalizeTransportOptions` type. The manager's members are pipecat's
+`MediaManager` and `bindOutputElement()`; nothing else is public.
 
 ## What it does that a thin wrapper would not
 

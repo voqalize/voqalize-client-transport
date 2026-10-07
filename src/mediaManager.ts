@@ -53,6 +53,7 @@ import {
   type MediaDevicesLike,
   type OutputElementLike,
   type StreamLike,
+  type GestureSource,
   type TrackLike,
   type VisibilitySource,
 } from "./mediaPlatform";
@@ -166,6 +167,13 @@ export interface LocalTrackChangedEvent {
 
 export type LocalTrackChangedHandler = (event: LocalTrackChangedEvent) => void | Promise<void>;
 
+/**
+ * Construction-time configuration. Internal: the public constructor takes
+ * none. The lab and the tests use it to inject a fake platform and test-scale
+ * timings; nothing here is a promise to an application.
+ *
+ * @internal
+ */
 export interface VoqalizeMediaManagerOptions {
   /** Defaults to `navigator.mediaDevices`. Required in node. */
   mediaDevices?: MediaDevicesLike;
@@ -198,22 +206,13 @@ export interface VoqalizeMediaManagerOptions {
   /** Fall back to the default device when the selected one disappears. Default true. */
   fallbackToDefaultDevice?: boolean;
   /**
-   * Called when the browser refuses playback on a bound output element, and
-   * again with `false` once it is running.
-   *
-   * Not a pipecat `MediaEventCallbacks` member — pipecat has no channel for
-   * this — so it lives here, on our own options, rather than being smuggled
-   * into a typed callback that means something else. An app renders this as a
-   * "tap to enable audio" affordance and calls `resumePlayback()` from the
-   * click.
+   * Where a user gesture is heard, so a refused `play()` is retried from
+   * inside one. Defaults to `document`.
    */
+  gestures?: GestureSource;
+  /** Called when playback on the bound elements becomes refused, and again with `false` once it runs. */
   onPlaybackBlocked?: (blocked: boolean) => void;
-  /**
-   * Called each time the playout guard re-attaches the agent's track to a
-   * bound element: `"error"` when the element raised one, `"stalled"` when
-   * packets kept arriving and nothing was played. For logging; the guard has
-   * already acted. See `playoutGuard.ts`.
-   */
+  /** Called each time the playout guard re-attaches a bound element's source. */
   onPlaybackRecovered?: (reason: PlayoutRecoveryReason) => void;
   /** The guard's tuning, or `false` to turn it off. */
   playoutGuard?:
@@ -247,6 +246,8 @@ interface Slot {
   intentionalStops: WeakSet<object>;
   detach: (() => void) | null;
 }
+
+const GESTURE_EVENTS = ["pointerdown", "keydown"] as const;
 
 const LOCAL_PARTICIPANT: Participant = { id: "local", name: "", local: true };
 
@@ -301,6 +302,13 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   /** Elements the browser has refused to play. Membership *is* the blocked state. */
   private readonly blockedElements = new Set<OutputElementLike>();
   private playbackBlockedReported = false;
+  private readonly gestures: GestureSource | undefined;
+  private gesturesArmed = false;
+  /**
+   * The retry, run synchronously inside the gesture's own event: awaiting
+   * anything first would leave the activation window the browser grants it.
+   */
+  private readonly onGesture = () => void this.resumePlayback();
   private readonly onPlaybackBlockedCallback: ((blocked: boolean) => void) | undefined;
   private readonly onPlaybackRecoveredCallback:
     ((reason: PlayoutRecoveryReason) => void) | undefined;
@@ -320,6 +328,9 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     }
   };
 
+  constructor();
+  /** @internal */
+  constructor(options: VoqalizeMediaManagerOptions);
   constructor(options: VoqalizeMediaManagerOptions = {}) {
     const mediaDevices =
       options.mediaDevices ??
@@ -342,6 +353,9 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     this.publishWatchdogMs = options.publishWatchdogMs ?? 500;
     this.deviceChangeDebounceMs = options.deviceChangeDebounceMs ?? 250;
     this.fallbackToDefaultDevice = options.fallbackToDefaultDevice ?? true;
+    this.gestures =
+      options.gestures ??
+      (typeof document !== "undefined" ? (document as GestureSource) : undefined);
     this.onPlaybackBlockedCallback = options.onPlaybackBlocked;
     this.onPlaybackRecoveredCallback = options.onPlaybackRecovered;
     this.playoutGuardOptions = options.playoutGuard;
@@ -385,6 +399,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     // refused by the browser or, worse, prompt the user out of nowhere.
   }
 
+  /** @internal `attachTrackChangedHandler()` subscribes through this. */
   setLocalTrackChangedHandler(handler: LocalTrackChangedHandler | null): void {
     this.localTrackChangedHandler = handler;
   }
@@ -430,6 +445,12 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     });
   }
 
+  /**
+   * Release every device and listener for good. Internal: pipecat's lifecycle
+   * is `disconnect()`, and a manager that is dropped is collected.
+   *
+   * @internal
+   */
   async destroy(): Promise<void> {
     if (this.destroyed) return;
     await this.disconnect();
@@ -441,6 +462,8 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     this.stopPublishWatchdog();
     for (const guard of this.guards.values()) guard.stop();
     this.guards.clear();
+    this.blockedElements.clear();
+    this.armGestures(false);
     this.statsSource = null;
     this.outputElements.clear();
     this.destroyed = true;
@@ -515,9 +538,13 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   }
 
   /**
-   * Register a media element whose output device follows `updateSpeaker()`.
-   * SmallWebRTCTransport owns no playback element, so routing has to be applied
-   * where playback actually happens. Returns an unbind function.
+   * Hand the manager the element the agent plays on. Returns the unbind.
+   *
+   * SmallWebRTCTransport owns no playback element, so this is where the
+   * manager's output work happens: the element follows `updateSpeaker()`; a
+   * `play()` the browser refuses is retried on the user's next tap or key;
+   * and an element that stops playing the agent's track while it is arriving
+   * is re-attached (`playoutGuard.ts`). The app still sets `srcObject`.
    */
   bindOutputElement(element: OutputElementLike): () => void {
     this.outputElements.add(element);
@@ -537,13 +564,13 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       this.outputElements.delete(element);
       this.guards.get(element)?.stop();
       this.guards.delete(element);
-      // An element that leaves while blocked must not hold the whole app in a
-      // "tap to enable audio" state forever.
+      // An element that leaves while blocked must not keep the retry armed.
       if (this.blockedElements.delete(element)) this.publishPlaybackBlocked();
     };
   }
 
   /**
+   * @internal
    * Lend the guard the peer connection's stats. `createVoqalizeTransport()`
    * does this; an app wiring the manager by hand calls
    * `attachTrackChangedHandler()`, which does it too. Without it the guard
@@ -569,6 +596,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   }
 
   /**
+   * @internal
    * True while the browser is refusing to play at least one bound element.
    *
    * Autoplay is the failure where every other number looks healthy — frames
@@ -580,15 +608,17 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   }
 
   /**
+   * @internal
    * Retry playback on every element the browser refused. Returns true when
-   * they are all playing.
+   * they are all playing. The manager calls this from the next user gesture
+   * on the page (`armGestures`), so no app has to.
    *
-   * **Call this synchronously from a user gesture** — a click, a tap, a key —
-   * and do not await anything before it. This is the same constraint
-   * `getDisplayMedia` has and it is why, like that call, it is deliberately
-   * *not* put on the mutation queue: queueing would push the `play()` outside
-   * the activation window the browser grants the gesture, and the retry would
-   * be refused for exactly the reason it is being retried.
+   * It must run synchronously inside the gesture, with nothing awaited before
+   * it. This is the same constraint `getDisplayMedia` has and it is why, like
+   * that call, it is deliberately *not* put on the mutation queue: queueing
+   * would push the `play()` outside the activation window the browser grants
+   * the gesture, and the retry would be refused for exactly the reason it is
+   * being retried.
    */
   async resumePlayback(): Promise<boolean> {
     const blocked = [...this.blockedElements];
@@ -600,8 +630,8 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
    * Attempt playback, and classify a refusal rather than swallowing it.
    *
    * - `NotAllowedError` is the autoplay policy. It is not an error the app can
-   *   fix and not a device failure — it needs a gesture — so it goes on the
-   *   playback channel, not the device-error one.
+   *   fix and not a device failure — it needs a gesture — so the element is
+   *   retried on the next one, and the device-error channel stays clean.
    * - `AbortError` is a `play()` interrupted by a new `load()`/`srcObject`,
    *   which is routine when a track is swapped mid-call. Ignored on purpose.
    * - Anything else is a real playback fault and is reported as a speaker
@@ -625,12 +655,27 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     }
   }
 
-  /** Edge-triggered: an app wiring a banner to this should not see a storm of identical values. */
+  /** Edge-triggered, and keeps the gesture retry armed exactly while something is blocked. */
   private publishPlaybackBlocked(): void {
     const blocked = this.playbackBlocked;
+    this.armGestures(blocked);
     if (blocked === this.playbackBlockedReported) return;
     this.playbackBlockedReported = blocked;
     this.onPlaybackBlockedCallback?.(blocked);
+  }
+
+  /**
+   * Listen for the gestures that grant playback (`pointerdown` and `keydown`,
+   * the activation-triggering events every engine shares) in the capture
+   * phase, so an app that stops propagation does not swallow the retry.
+   */
+  private armGestures(arm: boolean): void {
+    if (!this.gestures || arm === this.gesturesArmed) return;
+    this.gesturesArmed = arm;
+    for (const type of GESTURE_EVENTS) {
+      if (arm) this.gestures.addEventListener(type, this.onGesture, true);
+      else this.gestures.removeEventListener(type, this.onGesture, true);
+    }
   }
 
   // ----------------------------------------------------------------- capture
@@ -791,6 +836,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   }
 
   /**
+   * @internal
    * The sender settings phase 2b is to apply (SPEC.md decision 8), as data.
    *
    * This phase has no peer connection, so nothing here is applied to an
@@ -803,6 +849,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   }
 
   /**
+   * @internal
    * The device id the manager is currently *asking* for, as opposed to the one
    * it got. Not part of the pipecat surface; it exists because "we stopped
    * asking for the mic you unplugged" is a real behaviour with no other
@@ -812,12 +859,12 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     return this.slots.audio.deviceId;
   }
 
-  /** The camera twin of `requestedMicId`. */
+  /** @internal The camera twin of `requestedMicId`. */
   get requestedCamId(): string {
     return this.slots.video.deviceId;
   }
 
-  /** The capture tracks the manager owns. Not part of the pipecat surface — for tests and diagnostics. */
+  /** @internal The capture tracks the manager owns, for tests and diagnostics. */
   captureTracks(): {
     audio: TrackLike | null;
     video: TrackLike | null;

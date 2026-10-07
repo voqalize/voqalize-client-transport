@@ -34,7 +34,7 @@ test.afterEach(async ({ page }) => {
 
 test("the transport holds our manager, and the page loaded no foreign code", async ({ page }) => {
   const injected = await page.evaluate(() => window.__factory.injected());
-  expect(injected.sameObject).toBe(true);
+  expect(injected.ours).toBe(true);
   expect(injected.constructorName).toBe("VoqalizeMediaManager");
   // The point of the package: nothing in the media path fetches code at
   // runtime, so a transport that fell back to a manager that does would show

@@ -95,9 +95,8 @@ rather than deleting it. The wrong answer is how the next person avoids
 re-deriving it.
 
 **One `getUserMedia` per acquisition, and everything through the queue.** The
-two documented exceptions are `getDisplayMedia` and `resumePlayback()`, both of
-which must stay inside the caller's user-activation window. Adding a third
-needs a reason in [docs/DESIGN.md](docs/DESIGN.md).
+documented exceptions are `getDisplayMedia` and the autoplay retry, which must
+stay inside a user-activation window. Adding another needs a reason in [docs/DESIGN.md](docs/DESIGN.md).
 
 ## Reporting a browser-specific failure
 

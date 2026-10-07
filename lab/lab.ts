@@ -75,6 +75,8 @@ export class Lab implements LabApi {
   private readonly elements: OutputElementLike[] = [];
   private readonly unbinds: Array<() => void> = [];
   private readonly playback: string[] = [];
+  /** Stands in for `document` as the gesture source, so both tiers dispatch one the same way. */
+  private gestures = new EventTarget();
   /**
    * Phase 2b. Null until `pcOpen()`, and null in tier 1 forever — node has no
    * `RTCPeerConnection`, which is why every case that touches it declares
@@ -108,7 +110,9 @@ export class Lab implements LabApi {
     this.playback.length = 0;
 
     const platform = this.makePlatform();
+    this.gestures = new EventTarget();
     const manager = new VoqalizeMediaManager({
+      gestures: this.gestures,
       mediaDevices: platform.mediaDevices,
       visibility: platform.visibility,
       // Test-scale timings. The bodies wait real time in both tiers — no fake
@@ -559,6 +563,9 @@ export class Lab implements LabApi {
   async resumePlayback(): Promise<boolean> {
     return this.m.resumePlayback();
   }
+  async gesture(): Promise<void> {
+    this.gestures.dispatchEvent(new Event("pointerdown"));
+  }
   async playAttempts(): Promise<number[]> {
     return this.p.playAttempts();
   }
@@ -694,6 +701,7 @@ export const LAB_METHODS = [
   "blockAutoplay",
   "playbackBlocked",
   "resumePlayback",
+  "gesture",
   "playAttempts",
   "playbackEvents",
   "burst",

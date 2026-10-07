@@ -68,6 +68,16 @@ export interface VisibilitySource {
 }
 
 /**
+ * The subset of `document` the autoplay retry listens on: a refused `play()`
+ * is retried inside the user's next gesture, which is the only place a
+ * browser will allow it.
+ */
+export interface GestureSource {
+  addEventListener(type: string, listener: () => void, capture?: boolean): void;
+  removeEventListener(type: string, listener: () => void, capture?: boolean): void;
+}
+
+/**
  * The subset of `HTMLMediaElement` speaker routing touches. `setSinkId` is
  * optional because it is genuinely absent on some engines; the manager must
  * degrade rather than throw. What is actually true per engine is measured in

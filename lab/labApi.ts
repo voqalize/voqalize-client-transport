@@ -212,6 +212,8 @@ export interface LabApi {
   blockAutoplay(blocked: boolean): Promise<void>;
   playbackBlocked(): Promise<boolean>;
   resumePlayback(): Promise<boolean>;
+  /** A user gesture on the page: what the manager waits for to retry a refused `play()`. */
+  gesture(): Promise<void>;
   /** `play()` attempts per bound element, in bind order. */
   playAttempts(): Promise<number[]>;
   /** `"blocked"` / `"playing"` transitions announced on `onPlaybackBlocked`, in order. */
