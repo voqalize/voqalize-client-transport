@@ -300,6 +300,27 @@ And the measurement must be memoized _in flight_, not just on completion: under
 own throwaway context, which was enough to make Vite start answering
 `NS_ERROR_NET_EMPTY_RESPONSE` on firefox.
 
+## Firefox on a Linux runner has no audio server, so no `AudioContext` runs
+
+The first CI run of the level meter failed on Firefox alone: the factory test
+waited 15 s and received no levels at all — not zeros, nothing, which is the
+meter's "context not running" path. It passed in Firefox on macOS.
+
+Reproduced in the Playwright image (`mcr.microsoft.com/playwright:v1.63.0-noble`),
+which, like GitHub's ubuntu runner, runs no sound server. Every `AudioContext`
+Firefox builds there stays `"suspended"` and its `resume()` never settles, with
+or without `sinkId: { type: "none" }` (Firefox has no `sinkId` member and drops
+it), after a real click, and with `media.autoplay.default: 0`. Neither
+`media.cubeb.force_null_context` nor `media.cubeb.force_mock_context` changes
+that. Starting PulseAudio — whose only sink there is `auto_null` — is enough:
+the context reaches `"running"` within the resume, and the test passes.
+
+So the meter is right and the runner was missing a sound server: the Firefox
+job starts PulseAudio. A real Linux desktop runs one. A Linux Firefox without
+one reports no level, as the meter does anywhere its context cannot run, and so
+would Daily's, whose level comes from an `AudioWorklet` in an `AudioContext`
+too.
+
 ## A headless Linux runner has no display, and the gate said otherwise
 
 `screenShare` was gated on `typeof navigator.mediaDevices.getDisplayMedia ===

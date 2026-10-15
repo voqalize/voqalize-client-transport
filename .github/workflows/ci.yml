@@ -124,6 +124,16 @@ jobs:
       - name: install ${{ matrix.engine }}
         run: pnpm exec playwright install --with-deps ${{ matrix.engine }}
 
+      - name: a sound server for firefox
+        # Firefox on Linux runs no `AudioContext` without one: the context stays
+        # suspended and the local-level meter, correctly, reports nothing. The
+        # runner has none; a null sink is enough (docs/FINDINGS.md).
+        if: matrix.engine == 'firefox'
+        run: |
+          sudo apt-get install -y --no-install-recommends pulseaudio
+          pulseaudio --start --exit-idle-time=-1
+          pactl info
+
       - name: the same contract bodies, in a real engine
         # `playwright.config.ts` starts its own Vite dev server, which also
         # mounts the controllable UDP relay the network suite drives. It binds
