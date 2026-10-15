@@ -109,8 +109,10 @@ default device.
 
 ## Chromium reports `audioLevel: 0` on `inbound-rtp`
 
-Decision 7 keeps Web Audio out of the capture path, so the demo's level meter
-reads `audioLevel` from the **receiving** peer's `getStats()`. Measured in real
+The demo's level meter reads `audioLevel` from the **receiving** peer's
+`getStats()`, because what it shows is that the audio arrived — which the
+manager's own `onLocalAudioLevel`, measured before anything is sent, cannot
+show. Measured in real
 Chrome, one receiver, one instant, 200 packets received:
 
 ```
@@ -121,6 +123,93 @@ getSynchronizationSources()[0].audioLevel    0.12589254117941673
 WebKit populates `inbound-rtp.audioLevel` properly (0.1006 measured). Chromium
 does not, so the loopback treats a **zero** as missing, not as silence, and
 falls back to the synchronization source.
+
+## Daily's local audio level is WebRTC's `audioLevel`, computed off-package
+
+Measured 2026-10-15 against `@daily-co/daily-js` 0.90.0, the version
+`@pipecat-ai/small-webrtc-transport` 1.10.7 depends on. Nothing below runs in
+this repository; it is how the level `VoqalizeMediaManager` now emits was
+matched.
+
+- **Where it comes from.** `DailyMediaManager.initialize()` calls
+  `startLocalAudioLevelObserver(100)` right after starting the camera and
+  microphone — before any call — and forwards each `local-audio-level` event's
+  `audioLevel` to `onLocalAudioLevel`. The computation is not in the npm
+  package. It is in the call-machine bundle daily-js loads at runtime from
+  `c.daily.co/call-machine/versioned/0.90.0/`, which is the remotely-loaded
+  code this package exists to remove.
+- **How it is computed.** A fresh `AudioContext` per start;
+  `createMediaStreamSource(new MediaStream([track]))` on the **capture track
+  itself**, into an `AudioWorkletNode`, **connected to
+  `audioContext.destination`**. The worklet is a port of WebRTC's
+  `audio_level.cc`, the source of `RTCAudioSourceStats.audioLevel`: over each
+  window of at least 100 ms it keeps the largest absolute sample across
+  channels, reports the held peak as linear full-scale amplitude (0 to 1), then
+  divides the held peak by four. A main-thread `setInterval` at the requested
+  100 ms emits the latest value. Some of it is artefact rather than design:
+  the window length assumes 44.1 kHz whatever the real rate, and the reported
+  value is the previous window's, one window late.
+- **What type it is.** The worklet posts `audioLevel.toFixed(6)` and nothing
+  parses it, so `onLocalAudioLevel` receives a **string** such as
+  `"0.123456"`, despite pipecat typing it `number`. Before the first worklet
+  message it emits `undefined`.
+- **Muted.** Daily mutes by setting `enabled = false` on the capture track, and
+  the observer stops whenever its track is missing or disabled: no events, and
+  no final zero. Unmuting or switching device restarts it on the current track.
+  `leave()` stops it.
+- **Requirements.** `startLocalAudioLevelObserver` throws where
+  `AudioWorkletNode` is missing, and refuses an interval under 100 ms.
+
+`VoqalizeMediaManager` matches the scale, the decay, the cadence, the start
+before any call, and the silence while muted. It differs where Daily's
+behaviour is an accident or a cost: the level is a `number`, it is not a
+window late, it is never `undefined`, it needs no `AudioWorklet`, and it
+measures a **clone** of the capture track through an `AnalyserNode` connected
+to nothing, so the context renders no audio. The analyser's window is the
+smallest power of two covering 100 ms at the context's rate, read every
+100 ms, so consecutive reads overlap rather than leave gaps.
+
+Measured through `RTVIEvent.LocalAudioLevel` on a real `PipecatClient`
+(`e2e/factory.spec.ts`), Playwright 1.63.0's engines, each with its fake
+microphone, over 2 s:
+
+```
+chromium  beeps: 0 between them, 1 on each beep, then 0.25, 0.0625, 0.0156
+webkit    a 0.597 beep over a steady 0.1 floor, decaying 0.597 → 0.149 → 0.1
+firefox   a steady 0.1 tone
+```
+
+WebKit's mock microphone can also stay **silent for seconds** after it opens
+when several engines run at once. It is the device, not the meter: an
+`AnalyserNode` on the capture track itself, in a context of its own, read zero
+at the same moments the meter did. The end-to-end test waits for the sound
+instead of timing a fixed window.
+
+## A level meter's `AudioContext` on iOS
+
+Not measured on a device; this is the risk as the specifications and WebKit's
+reports describe it, and why the meter is built the way it is.
+
+The [Audio Session](https://www.w3.org/TR/audio-session/) specification, which
+WebKit implements, resolves the page's audio session type from what is active:
+a live microphone track contributes `play-and-record`, which outranks
+everything; an `AudioContext` contributes only `ambient`, the lowest, and only
+while it is running and audible. A page with a live microphone is already in
+`play-and-record` — with the earpiece routing and the ducking of other apps'
+audio that iOS applies to it, all of which getUserMedia causes before any meter
+exists — and an `AudioContext` cannot change that type.
+
+So the meter only exists while the microphone is live and enabled, and closes
+its context when the microphone is disabled or released: there is never a
+moment when the context is the most significant audio on the page. Its
+analyser is connected to nothing, so the context is never audible. What remains
+possible, and is unverified, is WebKit adjusting the shared hardware session
+for the context's sake — a different preferred buffer size or sample rate, or
+an `"interrupted"` state after a phone call or route change. The meter asks for
+`latencyHint: "playback"` (the largest buffer, so it never asks for a smaller
+one than capture already has), treats any state other than `"running"` as
+"emit nothing", and resumes on the next gesture. A real iPhone and an iPad,
+with Bluetooth and wired headsets, are owed before this is called safe.
 
 ## Android Chrome stops playing a taken-over call
 

@@ -83,10 +83,22 @@ option.
 6. **`contentHint` on every published track**: `"speech"` for the mic,
    `"motion"` for the camera, `"detail"` for the screen.
 
-7. **No Web Audio in the capture path.** A local level meter that routes the
-   mic into an `AudioContext` opens an output device and puts itself in the echo
-   canceller's reference path. `userStartedSpeaking()` and `bufferBotAudio()`
-   are inert; turn detection belongs on the server.
+7. **No Web Audio in the capture path.** The capture track and the clone the
+   peer connection is given never pass through an `AudioContext`, so nothing
+   the far end hears depends on one. The local level pipecat defines as
+   `onLocalAudioLevel` — Daily's manager emits it, and an avatar reads it to
+   show that it is listening — is measured on a separate branch: the meter
+   takes its own clone of the capture track, feeds only that clone to a
+   `MediaStreamAudioSourceNode` and an `AnalyserNode`, and connects the
+   analyser to nothing, so no audio is rendered. Where the engine supports it
+   (Chromium) the context is opened with `sinkId: { type: "none" }` and holds
+   no output device at all, which was this decision's original objection to a
+   level meter. The level is on Daily's scale and cadence — the peak sample of
+   each 100 ms as linear amplitude, held with a quarter decay, as WebRTC's own
+   `audioLevel` is — starts with the microphone, stops while it is disabled,
+   and follows a device switch. Without an `AudioContext`, or while the
+   autoplay policy holds one, it emits nothing. `userStartedSpeaking()` and
+   `bufferBotAudio()` are inert; turn detection belongs on the server.
 
 8. **The screen share is tuned for legibility, not motion.** 1080p at a low
    frame rate: `contentHint = "detail"`, `degradationPreference =
@@ -120,7 +132,9 @@ elements: it detects the refusal and, while anything is refused, listens on the
 document for the next `pointerdown` or `keydown` (capture phase, so an app that
 stops propagation cannot swallow it) and retries every refused element inside
 that event. No app code: a "tap to enable audio" affordance would be an API to
-keep forever for a case the next tap answers anyway.
+keep forever for a case the next tap answers anyway. The level meter's
+`AudioContext` (decision 7) is held by the same policy, so the same listener is
+armed while it is suspended and resumes it from the same gesture.
 
 **Playout recovery.** The element can also stop playing a track it was
 playing, with no refusal to catch (see
@@ -146,6 +160,7 @@ hands the manager.
 src/            the published library
   index.ts         public surface
   mediaManager.ts  VoqalizeMediaManager
+  localAudioLevel.ts the onLocalAudioLevel meter, on a clone of the mic (decision 7)
   mediaPlatform.ts the structural media types the manager is written against
   pipecatTypes.ts  what is re-exported from pipecat, and what is mirrored
   transport.ts     createVoqalizeTransport / attachTrackChangedHandler
@@ -160,4 +175,6 @@ e2e/            the same contract suite, in three real browsers
 a strict subset of the real type, which is what lets one implementation — the
 same file, not a parallel one — run over a fake platform in node and over
 `navigator.mediaDevices` in a browser. `tests/platformAssignability.test.ts` is
-the compile-time proof that the subsets are real.
+the compile-time proof that the subsets are real. The level meter follows the
+same rule for Web Audio: `AudioContextLike` and `AnalyserLike` in
+`src/localAudioLevel.ts`, proven in the same file.

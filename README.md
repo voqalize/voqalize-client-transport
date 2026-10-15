@@ -31,7 +31,8 @@ await client.connect();
 
 Everything else stays as it is. `client.enableMic()`, `client.updateCam()`,
 `client.enableScreenShare()`, `client.getAllMics()` and the `onTrackStarted` /
-`onDeviceError` callbacks all behave the way pipecat documents them, because
+`onDeviceError` / `onLocalAudioLevel` callbacks all behave the way pipecat
+documents them, because
 this is pipecat's own transport with one class swapped out.
 
 `createVoqalizeTransport` accepts every `SmallWebRTCTransport` option. The
@@ -166,10 +167,12 @@ The package exports `createVoqalizeTransport`, `VoqalizeMediaManager`,
   no `screenAudio`; capturing tab audio would need a fourth transceiver the
   interface cannot describe, and it would put system audio into the echo
   canceller's reference path.
-- **No Web Audio in the capture path.** A local level meter that routes the mic
-  through an `AudioContext` opens an output device and sits in the AEC path.
-  `userStartedSpeaking()` and `bufferBotAudio()` are inert here; VAD belongs on
-  the server.
+- **No Web Audio in the capture path.** Neither the capture track nor the track
+  the call sends goes through an `AudioContext`. `onLocalAudioLevel` (pipecat's
+  `RTVIEvent.LocalAudioLevel`) is still emitted, on the scale and cadence
+  Daily's manager uses, from a separate clone of the microphone that is
+  analysed and played nowhere. `userStartedSpeaking()` and `bufferBotAudio()`
+  are inert here; VAD belongs on the server.
 - **No transport of its own.** Signalling, ICE, reconnection and renegotiation
   are all still pipecat's; the network-change fix above changes when pipecat
   rebuilds and what it reports, not how.

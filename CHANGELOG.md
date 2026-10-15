@@ -5,6 +5,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- `onLocalAudioLevel` (pipecat's `RTVIEvent.LocalAudioLevel`) is emitted again,
+  as `DailyMediaManager` emits it: the microphone's peak level as linear
+  amplitude from 0 to 1, held with a quarter decay, every 100 ms, from the
+  moment the microphone is live and before any call. It stops while the
+  microphone is disabled, follows a device switch, carries on through a
+  reconnect, and stops with `disconnect()`. Its absence was a regression for
+  anything that listens to the user, avatars included. Unlike Daily's, the
+  level is a `number`, not a string, and it needs no `AudioWorklet`.
+- The level is measured on its own clone of the microphone through an
+  `AnalyserNode` connected to nothing (and, in Chromium, an `AudioContext` with
+  no output device), so the capture track and the track the call sends still
+  never pass through Web Audio. Where there is no `AudioContext` it is not
+  emitted; while the autoplay policy holds the context it is not emitted until
+  the next tap or key press.
+
 ## [0.3.2] — 2026-10-07
 
 ### Fixed
