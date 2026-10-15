@@ -19,8 +19,12 @@
  *  3. One `getUserMedia` call when several kinds are wanted.
  *  5. `devicechange` is debounced.
  *  6. `contentHint`: `"speech"` mic, `"motion"` camera, `"detail"` screen.
- *  7. No Web Audio anywhere in the capture path — there is no analyser, no
- *     AudioContext and no `onLocalAudioLevel` here, deliberately.
+ *  7. No Web Audio in the capture path. The capture track and the clone the
+ *     peer connection is given never touch an `AudioContext`. The local level
+ *     pipecat's `onLocalAudioLevel` expects — Daily's manager emits it, and
+ *     avatars read it to listen — is measured on a separate branch: the meter
+ *     clones the capture track and analyses only that clone, never connected to
+ *     a destination (`localAudioLevel.ts`).
  *  8. Screen share is tuned for legibility, not motion (see `ENCODING_POLICY`).
  *  9. Screen *video* only — `getDisplayMedia({ video, audio: false })`.
  * 10. Camera and screen share can be live at the same time.
@@ -57,6 +61,11 @@ import {
   type TrackLike,
   type VisibilitySource,
 } from "./mediaPlatform";
+import {
+  browserAudioContextFactory,
+  LocalAudioLevelMeter,
+  type AudioContextFactory,
+} from "./localAudioLevel";
 import {
   PlayoutGuard,
   type PlayoutGuardOptions,
@@ -221,6 +230,14 @@ export interface VoqalizeMediaManagerOptions {
    * `new MediaStream(tracks)`; required only where there is no `MediaStream`.
    */
   makeStream?: (tracks: TrackLike[]) => StreamLike;
+  /**
+   * Builds the `AudioContext` the local level is measured in (decision 7).
+   * Defaults to the browser's own; `null`, or an engine without one, emits no
+   * `onLocalAudioLevel` at all.
+   */
+  createAudioContext?: AudioContextFactory | null;
+  /** How often `onLocalAudioLevel` fires. Default 100 ms, Daily's interval. */
+  localAudioLevelIntervalMs?: number;
 }
 
 interface Slot {
@@ -306,8 +323,15 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   /**
    * The retry, run synchronously inside the gesture's own event: awaiting
    * anything first would leave the activation window the browser grants it.
+   * The level meter's `AudioContext` is held by the same autoplay policy, so it
+   * is resumed from the same gesture.
    */
-  private readonly onGesture = () => void this.resumePlayback();
+  private readonly onGesture = () => {
+    void this.resumePlayback();
+    this.levelMeter.resume();
+  };
+  /** Decision 7: the local level, measured on a clone of the capture track. */
+  private readonly levelMeter: LocalAudioLevelMeter;
   private readonly onPlaybackBlockedCallback: ((blocked: boolean) => void) | undefined;
   private readonly onPlaybackRecoveredCallback:
     ((reason: PlayoutRecoveryReason) => void) | undefined;
@@ -363,6 +387,17 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       (typeof MediaStream === "function"
         ? (tracks) => new MediaStream(tracks as MediaStreamTrack[]) as StreamLike
         : undefined);
+
+    this.levelMeter = new LocalAudioLevelMeter({
+      createContext:
+        options.createAudioContext === undefined
+          ? browserAudioContextFactory()
+          : options.createAudioContext,
+      makeStream: this.makeStream,
+      intervalMs: options.localAudioLevelIntervalMs,
+      onLevel: (level) => this.callbacks.onLocalAudioLevel?.(level),
+      onNeedsGesture: () => this.syncGestures(),
+    });
 
     this.slots = {
       audio: newSlot("audio", "audio", "audioinput", true, true),
@@ -462,6 +497,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     for (const guard of this.guards.values()) guard.stop();
     this.guards.clear();
     this.blockedElements.clear();
+    this.levelMeter.stop();
     this.armGestures(false);
     this.statsSource = null;
     this.outputElements.clear();
@@ -657,10 +693,17 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   /** Edge-triggered, and keeps the gesture retry armed exactly while something is blocked. */
   private publishPlaybackBlocked(): void {
     const blocked = this.playbackBlocked;
-    this.armGestures(blocked);
+    this.syncGestures();
     if (blocked === this.playbackBlockedReported) return;
     this.playbackBlockedReported = blocked;
     this.onPlaybackBlockedCallback?.(blocked);
+  }
+
+  /** Armed while anything needs a gesture: a refused element, or a held level meter. */
+  private syncGestures(): void {
+    this.armGestures(
+      !this.destroyed && (this.playbackBlocked || this.levelMeter.waitingForGesture),
+    );
   }
 
   /**
@@ -977,6 +1020,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     }
 
     if (previousCapture) this.stopIntentionally(slot, previousCapture);
+    this.syncLevelMeter(slot);
   }
 
   /**
@@ -1105,11 +1149,31 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     }
     if (capture) this.stopIntentionally(slot, capture);
     this.syncPublishWatchdog();
+    this.syncLevelMeter(slot);
   }
 
   private setSlotEnabled(slot: Slot, enabled: boolean): void {
     if (slot.capture) slot.capture.enabled = enabled;
     if (slot.published) slot.published.enabled = enabled; // decision 1: mirror onto the clone
+    this.syncLevelMeter(slot);
+  }
+
+  /**
+   * Point the level meter at the microphone it should measure: the capture
+   * track while it is live and enabled, otherwise nothing. Called after every
+   * change to the audio slot, so a device switch moves the meter onto the new
+   * track and a mute stops it.
+   *
+   * A disabled microphone is not measured at all, which is Daily's behaviour
+   * too — its observer stops when the track is disabled and emits no final
+   * zero. It is also the only honest one: the meter's branch is a clone, which
+   * `enabled = false` on the capture track does not silence, and a user who
+   * muted must not be listened to by anything.
+   */
+  private syncLevelMeter(slot: Slot): void {
+    if (slot !== this.slots.audio) return;
+    const capture = slot.capture;
+    this.levelMeter.measure(!this.destroyed && isLive(capture) && capture.enabled ? capture : null);
   }
 
   private async selectInput(slot: Slot, deviceId: string): Promise<void> {
@@ -1168,6 +1232,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       slot.published = null;
       this.clearMutedTimer(slot);
       this.syncPublishWatchdog();
+      this.syncLevelMeter(slot);
       slot.detach?.();
       slot.detach = null;
       await this.localTrackChangedHandler?.({

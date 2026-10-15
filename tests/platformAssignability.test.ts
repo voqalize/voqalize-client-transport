@@ -21,6 +21,7 @@ import type {
   TrackLike,
   VisibilitySource,
 } from "../src/mediaPlatform";
+import type { AnalyserLike, AudioContextLike, AudioNodeLike } from "../src/localAudioLevel";
 
 /**
  * Never called. Its body is typechecked, which is the entire assertion — every
@@ -33,6 +34,9 @@ function realDomTypesSatisfyThePlatformInterfaces(
   doc: Document,
   audio: HTMLAudioElement,
   labTrack: TrackLike,
+  audioContext: AudioContext,
+  analyser: AnalyserNode,
+  sourceNode: MediaStreamAudioSourceNode,
 ): void {
   const asTrack: TrackLike = track;
   const asStream: StreamLike = stream;
@@ -43,7 +47,12 @@ function realDomTypesSatisfyThePlatformInterfaces(
   // `MediaStreamTrack`s, so `TrackLike` must be castable to one. That cast
   // lives in the manager (`asTrack`) and is deliberately the only one there.
   const backToDom = labTrack as unknown as MediaStreamTrack;
+  // The level meter's Web Audio surface (decision 7), the same claim again.
+  const asContext: AudioContextLike = audioContext;
+  const asAnalyser: AnalyserLike = analyser;
+  const asNode: AudioNodeLike = sourceNode;
   void [asTrack, asStream, asDevices, asVisibility, asOutput, backToDom];
+  void [asContext, asAnalyser, asNode];
 }
 
 void realDomTypesSatisfyThePlatformInterfaces;
