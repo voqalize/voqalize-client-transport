@@ -5,6 +5,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-10-15
+
 ### Added
 
 - `onLocalAudioLevel` (pipecat's `RTVIEvent.LocalAudioLevel`) is emitted again,
@@ -153,7 +155,8 @@ First release.
   chromium/firefox/webkit with real ones — plus a controllable UDP relay that
   breaks and moves the network path under a live call.
 
-[Unreleased]: https://github.com/voqalize/voqalize-client-transport/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/voqalize/voqalize-client-transport/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/voqalize/voqalize-client-transport/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/voqalize/voqalize-client-transport/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/voqalize/voqalize-client-transport/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/voqalize/voqalize-client-transport/compare/v0.2.0...v0.3.0
