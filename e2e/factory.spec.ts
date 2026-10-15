@@ -52,6 +52,34 @@ test("getAllMics() is answered by our manager", async ({ page }) => {
   expect(await page.evaluate(() => window.__factory.getAllMics())).toBeGreaterThan(0);
 });
 
+test("the microphone's level reaches RTVIEvent.LocalAudioLevel, every 100 ms", async ({ page }) => {
+  // A real click first: the meter's AudioContext is under the autoplay policy.
+  await page.mouse.click(1, 1);
+  await page.evaluate(() => window.__factory.listenToLocalAudioLevel());
+  // Every engine's fake microphone makes a sound — a beep or a tone — but
+  // WebKit's mock device can stay silent for seconds after it opens on a
+  // loaded machine. A probe of the capture track itself, outside the meter,
+  // reads the same silence then, so this waits for the sound, and for enough
+  // levels to time, rather than timing a fixed window.
+  const heard = async () => {
+    const { levels } = await page.evaluate(() => window.__factory.localAudioLevels());
+    return levels.length > 10 && Math.max(...levels) > 0;
+  };
+  await expect.poll(heard, { timeout: 15_000 }).toBe(true);
+
+  const { levels, at } = await page.evaluate(() => window.__factory.localAudioLevels());
+  expect(levels.length, JSON.stringify(levels)).toBeGreaterThan(5);
+  for (const level of levels) {
+    expect(typeof level).toBe("number");
+    expect(level).toBeGreaterThanOrEqual(0);
+    expect(level).toBeLessThanOrEqual(1);
+  }
+  const gaps = at.slice(1).map((t, i) => t - at[i]!);
+  const median = gaps.sort((a, b) => a - b)[Math.floor(gaps.length / 2)]!;
+  expect(median).toBeGreaterThan(60);
+  expect(median).toBeLessThan(160);
+});
+
 for (const withGetter of [true, false]) {
   const path = withGetter
     ? "through the transport's own getAudioTransceiver()"

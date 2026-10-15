@@ -37,6 +37,9 @@ let kept: { client: PipecatClient; transport: ReturnType<typeof createVoqalizeTr
   null;
 let keptOutcome = "none";
 
+/** What `listenToLocalAudioLevel()` has heard, and when. */
+const levelsHeard = { levels: [] as number[], at: [] as number[] };
+
 function current(): Built {
   if (!built) throw new Error("call build() first");
   return built;
@@ -106,6 +109,27 @@ const factory = {
 
   async getAllMics(): Promise<number> {
     return (await current().client.getAllMics()).length;
+  },
+
+  /**
+   * Subscribe to `RTVIEvent.LocalAudioLevel` on the real `PipecatClient` and
+   * open the microphone. The subscription is the event an application (and the
+   * avatar) listens to, so the whole path — manager, transport, client — is
+   * what is measured. `localAudioLevels()` reads what has arrived since.
+   */
+  async listenToLocalAudioLevel(): Promise<void> {
+    const { client } = current();
+    levelsHeard.levels.length = 0;
+    levelsHeard.at.length = 0;
+    client.on(RTVIEvent.LocalAudioLevel, (level: number) => {
+      levelsHeard.levels.push(level);
+      levelsHeard.at.push(performance.now());
+    });
+    await client.initDevices();
+  },
+
+  localAudioLevels(): { levels: number[]; at: number[] } {
+    return { levels: [...levelsHeard.levels], at: [...levelsHeard.at] };
   },
 
   /**

@@ -10,9 +10,10 @@
  * Two rules it holds itself to:
  *
  *  - **No Web Audio anywhere near the capture path** (SPEC.md decision 7). The
- *    microphone meter is `audioLevel` from the *receiving* peer's `getStats()`.
- *    An `AnalyserNode` on the capture track would be easier and would measure a
- *    pipeline we do not ship.
+ *    microphone meter is `audioLevel` from the *receiving* peer's `getStats()`,
+ *    because what it proves is that the audio arrived. The manager's own
+ *    `onLocalAudioLevel` is measured on a clone before anything is sent, and
+ *    would show a level for a call that is carrying nothing.
  *  - **Nothing here is a second implementation.** The page drives the shipped
  *    manager and the shipped loopback; if it needs a behaviour they do not
  *    have, that is a gap in them, not a helper in here.
