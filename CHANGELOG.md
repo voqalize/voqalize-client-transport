@@ -5,6 +5,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- The `@pipecat-ai/small-webrtc-transport` peer floor is now 1.10.7. Before it,
+  a 4xx from the offer endpoint was retried every 2 s and the transport then
+  stopped with no error, so `connect()` rejected with `undefined` and a page
+  had nothing to show. It also left `keepAcrossPageLoads` holding a call the
+  server had refused: forgetting one needs the `.status` that 1.10.7 puts on
+  the `TransportStartError` it stops with. 1.10.7 stops at the first 4xx.
+
 ## [0.4.0] — 2026-10-15
 
 ### Added

@@ -66,12 +66,12 @@
   },
   "peerDependencies": {
     "@pipecat-ai/client-js": ">=1.13.0 <2",
-    "@pipecat-ai/small-webrtc-transport": ">=1.10.0 <2"
+    "@pipecat-ai/small-webrtc-transport": ">=1.10.7 <2"
   },
   "devDependencies": {
     "@eslint/js": "^9.38.0",
     "@pipecat-ai/client-js": "^1.13.0",
-    "@pipecat-ai/small-webrtc-transport": "^1.10.6",
+    "@pipecat-ai/small-webrtc-transport": "^1.10.8",
     "@playwright/test": "^1.56.0",
     "@types/node": "^26.4.1",
     "eslint": "^9.38.0",

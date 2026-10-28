@@ -15,8 +15,8 @@ importers:
         specifier: ^1.13.0
         version: 1.13.1
       '@pipecat-ai/small-webrtc-transport':
-        specifier: ^1.10.6
-        version: 1.10.7(@pipecat-ai/client-js@1.13.1)
+        specifier: ^1.10.8
+        version: 1.10.8(@pipecat-ai/client-js@1.13.1)
       '@playwright/test':
         specifier: ^1.56.0
         version: 1.63.0
@@ -448,8 +448,8 @@ packages:
   '@pipecat-ai/client-js@1.13.1':
     resolution: {integrity: sha512-kRzNWBouHrYyoc6iN60RO97kBhB+uAPSXzf3M1tL//w59X8lkPGCL1onM0crh28C64nxP4hJ0+v6Spf5amJKIg==}
 
-  '@pipecat-ai/small-webrtc-transport@1.10.7':
-    resolution: {integrity: sha512-m8wsmKxiBsj8wnQRhEl9sLU4wjJGO+cXBFEAMXD0iYBmqDzaQeSc48NgOFVsj2Oy8NLoYH7cxdY13M9RDQ5PDw==}
+  '@pipecat-ai/small-webrtc-transport@1.10.8':
+    resolution: {integrity: sha512-YeZUSdE3TqzPAbtUFsrrkhQM45KuHcD9prQBBr2nX6U9BINalLMFUlkM3e79V8XszU7YNi41pVTqjln9JL815Q==}
     peerDependencies:
       '@pipecat-ai/client-js': ~1.13.0
 
@@ -1701,7 +1701,7 @@ snapshots:
       typed-emitter: 2.1.0
       uuid: 11.1.1
 
-  '@pipecat-ai/small-webrtc-transport@1.10.7(@pipecat-ai/client-js@1.13.1)':
+  '@pipecat-ai/small-webrtc-transport@1.10.8(@pipecat-ai/client-js@1.13.1)':
     dependencies:
       '@daily-co/daily-js': 0.90.0
       '@pipecat-ai/client-js': 1.13.1

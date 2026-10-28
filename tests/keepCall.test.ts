@@ -3,9 +3,12 @@
  * `SmallWebRTCTransport` it wraps. A page load is a new stand-in over the same
  * store. `e2e/factory.spec.ts` runs the same flow through a real transport.
  */
-import { describe, expect, it } from "vitest";
+import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { FakeMediaDevices } from "../lab/fakeMediaDevices";
 import { keepCallAcrossPageLoads, type CallStore } from "../src/keepCall";
+import { VoqalizeMediaManager } from "../src/mediaManager";
 
 function memoryStore(): CallStore & { value: string | null } {
   return {
@@ -55,6 +58,10 @@ function page(store: CallStore) {
 }
 
 describe("keepCallAcrossPageLoads", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("rejoins on the next page with the request the last one connected with", async () => {
     const store = memoryStore();
     const first = page(store);
@@ -116,6 +123,53 @@ describe("keepCallAcrossPageLoads", () => {
     await transport.stop(Object.assign(new Error("gone"), { status: 410 }));
     expect(hasLiveCall()).toBe(false);
     expect(transport.stops).toHaveLength(4);
+  });
+
+  it("forgets the call when pipecat's own offer meets a 4xx, with the status on the error", async () => {
+    // The real transport's negotiation, not the stand-in: a refused offer has to
+    // reach `stop` as an error carrying `.status`, or there is nothing to tell a
+    // refusal from a network failure. pipecat 1.10.6 retried a 4xx and then
+    // called `stop()` with nothing, which is why the peer floor is 1.10.7.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("agent_not_configured", { status: 409 })),
+    );
+    const store = memoryStore();
+    await page(store).transport._connect(request());
+
+    const transport = new SmallWebRTCTransport({
+      mediaManager: new VoqalizeMediaManager({ mediaDevices: new FakeMediaDevices() }),
+    });
+    const stops: unknown[] = [];
+    const internals = transport as unknown as {
+      stop: (error?: unknown) => Promise<void>;
+      negotiate: () => Promise<void>;
+      pc: unknown;
+      _webrtcRequest: unknown;
+    };
+    internals.stop = async (error) => {
+      stops.push(error);
+    };
+    const hasLiveCall = keepCallAcrossPageLoads(transport, store);
+    expect(hasLiveCall()).toBe(true);
+
+    const pc = {
+      localDescription: null as unknown,
+      createOffer: async () => ({ type: "offer", sdp: "v=0\r\n" }),
+      setLocalDescription: async (description: unknown) => {
+        pc.localDescription = description;
+      },
+    };
+    internals.pc = pc;
+    internals._webrtcRequest = request().webrtcRequestParams;
+    await internals.negotiate();
+
+    expect(stops).toHaveLength(1);
+    expect(stops[0]).toMatchObject({
+      status: 409,
+      message: "WebRTC offer rejected with status 409",
+    });
+    expect(hasLiveCall()).toBe(false);
   });
 
   it("never starts a call: connect() with nothing saved passes nothing on", async () => {
