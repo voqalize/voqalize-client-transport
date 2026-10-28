@@ -182,7 +182,7 @@ The package exports `createVoqalizeTransport`, `VoqalizeMediaManager`,
 |                                      |                                                              |
 | ------------------------------------ | ------------------------------------------------------------ |
 | `@pipecat-ai/client-js`              | `>=1.13.0 <2` (peer)                                         |
-| `@pipecat-ai/small-webrtc-transport` | `>=1.10.0 <2` (peer)                                         |
+| `@pipecat-ai/small-webrtc-transport` | `>=1.10.7 <2` (peer)                                         |
 | Browsers                             | Chromium, Firefox and WebKit/Safari, all tested every commit |
 
 This is a browser package. It is built for a page, has no Node entry point and
