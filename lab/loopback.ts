@@ -1,6 +1,6 @@
 /**
  * Two `RTCPeerConnection`s in one page, wired to each other. No signalling
- * server, no network hop, no pygato — SPEC.md § "Scope of this track" says the
+ * server, no network hop, no voice runtime — SPEC.md § "Scope of this track" says the
  * peer connection this phase needs is made *in the page*.
  *
  * This is the first thing on the track that can produce a frame. Everything in
@@ -17,7 +17,7 @@
  *    be live. Lane 2 exists from the first offer with nothing in it.
  * 2. **Lane index is the contract.** `LANE_ORDER` is `0` audio, `1` video,
  *    `2` screenVideo, matching `getTransceivers()` order, which is m-line
- *    order, which is what pygato reads. Nothing here keys off a track id, a
+ *    order, which is what the voice runtime reads. Nothing here keys off a track id, a
  *    label or a device id — a screen track has no `deviceId` on firefox at all.
  * 3. **The peer connection only ever holds published clones.** The manager
  *    owns the capture track and hands the `onLocalTrackChanged` hook a clone

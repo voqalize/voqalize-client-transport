@@ -112,7 +112,7 @@ export interface EncodingPolicy {
  * A talking head is motion; a smaller, smooth face beats a sharp, stuttering
  * one, and 640×360-class video at 600 kbps is the well-trodden operating point.
  *
- * **Mic — 32 kbps mono Opus**, matching what PyGato already negotiates.
+ * **Mic — 32 kbps mono Opus**, matching what the voice runtime negotiates.
  * `maxFramerate` is meaningless for audio and is recorded as 0 rather than
  * omitted, so every entry has the same shape for 2b to iterate.
  *
@@ -860,7 +860,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
 
   /**
    * Constant `true` (SPEC.md decision 4): the transceiver count must not vary
-   * with browser support, or the SDP m-line shape changes underneath pygato.
+   * with browser support, or the SDP m-line shape changes underneath the voice runtime.
    * `enableScreenShare` throws where it cannot be honoured.
    */
   get supportsScreenShare(): boolean {
