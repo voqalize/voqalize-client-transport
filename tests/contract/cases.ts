@@ -1465,7 +1465,7 @@ export const CONTRACT_CASES: ContractCase[] = [
       const policy = await lab.encodingPolicy();
       deepEqual(Object.keys(policy).sort(), ["audio", "screenVideo", "video"]);
       equal(policy["audio"]?.contentHint, "speech");
-      equal(policy["audio"]?.maxBitrate, 32_000, "mono Opus, matching what pygato negotiates");
+      equal(policy["audio"]?.maxBitrate, 32_000, "mono Opus, matching what the voice runtime negotiates");
       equal(policy["video"]?.contentHint, "motion");
       equal(
         policy["video"]?.degradationPreference,
