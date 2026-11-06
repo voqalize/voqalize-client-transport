@@ -19,7 +19,66 @@ This package carries pipecat's `SmallWebRTCTransport` itself, built without
 daily-js, so you do not install `@pipecat-ai/small-webrtc-transport` and no
 bundler configuration is needed to keep daily out of your app.
 
-## Use it
+## A Voqalize page
+
+`createVoqalizeClient()` is the client for a page that talks to a Voqalize
+agent. Pass it the `sessions.connect` response body as `JSON.parse` gives it;
+your app imports nothing from pipecat.
+
+```ts
+import { createVoqalizeClient, isDeviceError } from "@voqalize/client-transport";
+
+const client = createVoqalizeClient({ audio: document.querySelector("audio")! });
+
+client.on("uiCommand", ({ command, payload }) => runAction(command, payload));
+client.on("userTranscript", (t) => t.final && show(t.text));
+
+const session = await fetch("/api/voice/start", { method: "POST" }).then((r) => r.json());
+try {
+  await client.connect(session);
+} catch (error) {
+  if (isDeviceError(error)) askForTheMicrophone(error.devices);
+}
+
+// "End":
+client.disconnectBot();
+await client.disconnect();
+```
+
+The options:
+
+- `audio`: the element the agent plays on. The client gives it the agent's
+  audio, routes it to the speaker `updateSpeaker()` chose, and restarts it when
+  a browser blocks or stalls playback
+  ([below](#play-the-agent-on-an-element-the-manager-knows)). Left out, play
+  the agent yourself from `trackStarted`.
+- `enableMic`: open the microphone on connect. Default true.
+- `keepAcrossPageLoads`: keep the session across a reload or a link on the same
+  site. `client.hasLiveCall` then says whether there is one to rejoin with
+  `client.connect()` ([below](#keep-the-call-across-page-loads)).
+- `mediaManager`: your own `VoqalizeMediaManager`, when the app needs it first.
+
+**What the client is.** It is pipecat's `PipecatClient`, over the transport
+this package builds, with nothing wrapped around it. What it is handed back as
+is `VoqalizeSession`, a type this package declares itself: the members and
+events listed in [`src/clientTypes.ts`](src/clientTypes.ts), with their payload
+types (`ActionData`, `AgentOutput`, `UserTranscript`, `DeviceProblem` and the
+rest). A pipecat release that adds or changes something does not change what
+your app sees; we follow it, or not, in a release of this package. Event and
+method names are pipecat's, and pipecat's `RTVIEvent` constants still work
+with `on()`.
+
+Device choice is part of it: `initDevices()`, `getAllMics()`,
+`getAllSpeakers()`, `updateMic()`, `updateSpeaker()`, `selectedMic`,
+`selectedSpeaker` and the `availableMicsUpdated` and `deviceError` events.
+
+`client.transport` is opaque. `@voqalize/avatar` and Stage take the client
+whole and read the peer connection from it.
+
+## With your own PipecatClient
+
+Every export from 0.4 is still here, for an app that builds its own client.
+`connect()` also accepts plain-object headers this way.
 
 ```ts
 import { PipecatClient } from "@pipecat-ai/client-js";
@@ -130,9 +189,11 @@ const transport = new SmallWebRTCTransport({ ...yourOptions, mediaManager } as n
 attachTrackChangedHandler(transport, mediaManager);
 ```
 
-The package exports `createVoqalizeTransport`, `VoqalizeMediaManager`,
-`attachTrackChangedHandler` and the `VoqalizeTransportOptions` type. The manager's members are pipecat's
-`MediaManager` and `bindOutputElement()`; nothing else is public.
+The package exports `createVoqalizeClient`, `isDeviceError` and the client's
+types; `createVoqalizeTransport`, `VoqalizeMediaManager`,
+`attachTrackChangedHandler` and the `VoqalizeTransportOptions` type; and
+`SmallWebRTCTransport` with its option types. The manager's members are
+pipecat's `MediaManager` and `bindOutputElement()`; nothing else is public.
 
 ## What it does that a thin wrapper would not
 
@@ -183,10 +244,10 @@ The package exports `createVoqalizeTransport`, `VoqalizeMediaManager`,
 
 ## Requirements
 
-|                         |                                                              |
-| ----------------------- | ------------------------------------------------------------ |
-| `@pipecat-ai/client-js` | `>=1.13.0 <2` (peer)                                         |
-| Browsers                | Chromium, Firefox and WebKit/Safari, all tested every commit |
+|                         |                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------- |
+| `@pipecat-ai/client-js` | `>=1.13.0 <2` (peer; CI checks the floor, the newest 1.x and, weekly, `latest`) |
+| Browsers                | Chromium, Firefox and WebKit/Safari, all tested every commit                    |
 
 This is a browser package. It is built for a page, has no Node entry point and
 declares no `engines` — Node appears here only as the tool that builds and

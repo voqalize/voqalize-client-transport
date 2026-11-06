@@ -7,6 +7,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [0.5.0] — 2026-11-06
 
+### Added
+
+- **`createVoqalizeClient()`, so a Voqalize page imports nothing from
+  pipecat.** It returns pipecat's `PipecatClient` over this package's
+  transport, unwrapped, typed as `VoqalizeSession`: the members and events we
+  support, in types this package declares (`VoqalizeClient`, `VoqalizeEvents`,
+  `ConnectionState`, `SessionParams`, `ActionData`, `AgentOutput`,
+  `UserTranscript`, `ErrorMessage`, `DeviceProblem`, `ParticipantInfo`). Device
+  selection is included. `audio` hands it the element the agent plays on.
+- `isDeviceError()`, in place of importing pipecat's `DeviceError` to test
+  with `instanceof`.
+- CI type-checks and tests against `@pipecat-ai/client-js` 1.13.0, the newest
+  1.x, and weekly against `latest`.
+
+### Fixed
+
+- `connect()` accepts the `sessions.connect` body as `JSON.parse` returns it.
+  The transport needed `headers` to be a `Headers` and threw a `TypeError` on a
+  plain object, before any request went out; every app converted it by hand.
+  Fixed for every transport `createVoqalizeTransport()` builds, including the
+  constructor's `webrtcRequestParams`.
+
 ### Changed
 
 - **daily-js is gone from apps that use this package.** pipecat's

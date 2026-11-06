@@ -92,6 +92,33 @@ jobs:
       - name: contract suite over the fake platform
         run: pnpm test:unit
 
+  client-js:
+    # The peer range is `>=1.13.0 <2`, and the types an app holds
+    # (`src/clientTypes.ts`) are checked against whichever client-js is
+    # installed, by one assignment in `src/client.ts`. So check both ends: the
+    # floor, and the newest 1.x, which has already changed a return type once
+    # (`sendText`, 1.16.0). `canary.yml` runs the same against `latest`.
+    name: client-js ${{ matrix.client-js }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        client-js: ["1.13.0", "1"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm add -D "@pipecat-ai/client-js@${{ matrix.client-js }}"
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test:unit
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright test e2e/factory.spec.ts --project=chromium
+
   browsers:
     name: browser — ${{ matrix.engine }}
     runs-on: ubuntu-latest

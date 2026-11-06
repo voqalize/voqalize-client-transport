@@ -184,11 +184,48 @@ of each in the site snippet.
 Not forking pipecat still holds: the transport's code is unmodified. A pipecat
 fix reaches apps through a release of this package that moves the pin.
 
+## The client an app holds is typed by us
+
+An app on Voqalize should import nothing from pipecat, and should not have to
+follow pipecat's releases. Replacing `PipecatClient` is out of scope, so the
+boundary is in the types: `createVoqalizeClient()` builds a real
+`PipecatClient` and returns it as `VoqalizeSession`, which `src/clientTypes.ts`
+declares and which imports nothing. Nothing wraps the object; the voqalize
+repo's rule against a client wrapper over pipecat's client still holds.
+
+The rules that keep the types honest:
+
+- **Every member is one `PipecatClient` has**, by the same name, with a type
+  pipecat's is assignable to. `const supported: VoqalizeClient = client` in
+  `src/client.ts` is the check, and it runs against whichever client-js is
+  installed; CI installs the floor of the peer range, the newest 1.x, and
+  weekly `latest`. When pipecat changes a member we offer, this assignment is
+  where it shows, and we widen our type (`sendText` now returns
+  `Promise<unknown>`, because 1.16.0 made it `Promise<string>`).
+- **A member pipecat lacks goes on the instance**, as `hasLiveCall` does with
+  `Object.defineProperty`, never by a wrapper. Keep these rare.
+- **Names are pipecat's** where the object already has them (`botReady`,
+  `uiCommand`, `disconnectBot`): renaming them needs a wrapper. Names we coin
+  follow the voqalize lexicon.
+- **`transport` is `unknown`.** The avatar and Stage read `transport.pc` from
+  it, which this package can promise because it bundles the transport at a
+  fixed version.
+- **`isDeviceError()`, not `DeviceError`.** Exporting the class would put a
+  pipecat type in the surface; the guard keeps the one `instanceof` inside.
+
+The headers fix belongs to the same change: `connect()` is typed to take the
+`sessions.connect` body, and that body's `headers` is a plain object, which the
+transport rejected (`src/headers.ts`). It is installed on every transport the
+factory builds, so an app on its own `PipecatClient` gets it too.
+
 ## Layout
 
 ```
 src/            the published library
   index.ts         public surface
+  client.ts        createVoqalizeClient / isDeviceError
+  clientTypes.ts   the client's types; imports nothing
+  headers.ts       plain-object headers made Headers, on every transport
   mediaManager.ts  VoqalizeMediaManager
   localAudioLevel.ts the onLocalAudioLevel meter, on a clone of the mic (decision 7)
   mediaPlatform.ts the structural media types the manager is written against
