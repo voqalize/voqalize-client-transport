@@ -5,6 +5,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-06
+
+### Changed
+
+- **daily-js is gone from apps that use this package.** pipecat's
+  `SmallWebRTCTransport` imports `@daily-co/daily-js` at the top of its module
+  for its default media manager. This package never builds that manager, but
+  every bundler kept the import, so each app shipped daily's SDK and had to
+  configure its own bundler to avoid it. The package now bundles pipecat's
+  transport (1.10.8, unmodified) with daily replaced by a stub, and the build
+  fails if daily's code or any import other than `@pipecat-ai/client-js`
+  reaches `dist/`.
+- `@pipecat-ai/small-webrtc-transport` is no longer a peer dependency. Remove
+  it from your app unless something else there imports it.
+  `SmallWebRTCTransport` and its option types (`IceConfig`,
+  `SmallWebRTCTransportConnectionOptions`,
+  `SmallWebRTCTransportConstructorOptions`) are exported from here.
+- `events` and `lodash`, which pipecat's transport imports, are now
+  dependencies of this package.
+- The bundled transport's licence ships in `THIRD_PARTY_NOTICES.md`.
+
 ## [0.4.1] — 2026-11-01
 
 ### Changed
@@ -166,7 +187,8 @@ First release.
   chromium/firefox/webkit with real ones — plus a controllable UDP relay that
   breaks and moves the network path under a live call.
 
-[Unreleased]: https://github.com/voqalize/voqalize-client-transport/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/voqalize/voqalize-client-transport/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/voqalize/voqalize-client-transport/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/voqalize/voqalize-client-transport/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/voqalize/voqalize-client-transport/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/voqalize/voqalize-client-transport/compare/v0.3.1...v0.3.2

@@ -154,6 +154,36 @@ engine whose stats lack either counter gets the error path only. The stats
 come from the transport's peer connection, which `attachTrackChangedHandler`
 hands the manager.
 
+## pipecat's transport is bundled, without daily
+
+`@pipecat-ai/small-webrtc-transport` imports `@daily-co/daily-js` at module
+scope for `DailyMediaManager`, the default it builds when no `mediaManager` is
+passed. `createVoqalizeTransport()` always passes one, so that branch never
+runs, but no bundler can see that: daily's SDK shipped in every app that used
+this package, and keeping it out took an alias in each app's bundler config.
+That is a fix every consumer has to know to make, so it belongs here.
+
+The package therefore bundles the transport at an exact pinned version, with
+daily aliased to `src/vendor/noDaily.ts` at build time, and stops declaring the
+transport as a peer. `@pipecat-ai/client-js` stays a peer and stays external,
+for `instanceof DeviceError`. Two build steps hold the result:
+
+- `scripts/fix-dts.mjs` — the transport's own declarations import its
+  `MediaManager` type from `@pipecat-ai/transport-lib`, which is not on npm.
+  The bundled declarations name `MediaManagerSurface` in its place, the shape
+  this package already implements.
+- `scripts/check-dist.mjs` — fails when daily's code is in `dist/`, when
+  `dist/` imports anything but `@pipecat-ai/client-js`, `events` and `lodash`,
+  or when a bundled package has no licence section in `THIRD_PARTY_NOTICES.md`.
+
+`events` and `lodash` are what the transport imports besides daily. They are
+ordinary `dependencies`, not bundled, because client-js imports `events` too
+and an app's bundler can only share a copy it can see: bundling them put two
+of each in the site snippet.
+
+Not forking pipecat still holds: the transport's code is unmodified. A pipecat
+fix reaches apps through a release of this package that moves the pin.
+
 ## Layout
 
 ```
@@ -164,6 +194,8 @@ src/            the published library
   mediaPlatform.ts the structural media types the manager is written against
   pipecatTypes.ts  what is re-exported from pipecat, and what is mirrored
   transport.ts     createVoqalizeTransport / attachTrackChangedHandler
+  vendor/noDaily.ts what the build puts in daily-js's place
+scripts/        the post-build steps: fix-dts.mjs, check-dist.mjs
 lab/            the harness: fake and real platforms, the probe and demo
                 pages, a loopback peer connection, and a controllable UDP relay
 tests/          the contract suite, in node over a fake MediaDevices

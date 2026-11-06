@@ -55,38 +55,25 @@ jobs:
         run: pnpm build
 
       - name: no remotely-loaded code
-        # Asserted against the artifact consumers actually get, not the source:
-        # dist must import nothing but the two declared peer dependencies, and
-        # must never reach for the code evaluators. Comments are stripped
-        # first — a doc block that happens to contain `from "..."` is not an
-        # import, and one of ours does.
+        # `pnpm build` above already failed if dist imports anything but
+        # `@pipecat-ai/client-js` or carries daily-js (scripts/check-dist.mjs).
+        # This asserts the other half on the artifact consumers get: nothing in
+        # it reaches for the code evaluators. Comments are stripped first.
         run: |
           node --input-type=module -e '
             import { readFileSync } from "node:fs";
-            const allowed = new Set([
-              "@pipecat-ai/client-js",
-              "@pipecat-ai/small-webrtc-transport",
-            ]);
             let bad = false;
             for (const file of ["dist/index.js", "dist/index.cjs"]) {
               const source = readFileSync(file, "utf8")
                 .replace(/\/\*[\s\S]*?\*\//g, "")
                 .replace(/^\s*\/\/.*$/gm, "");
-              for (const [, id] of source.matchAll(
-                /(?:\bfrom|\brequire\()\s*["\x27]([^"\x27]+)["\x27]/g
-              )) {
-                if (!allowed.has(id)) {
-                  console.log(`::error::${file} imports ${id}`);
-                  bad = true;
-                }
-              }
               if (/\beval\(|new Function\(/.test(source)) {
                 console.log(`::error::${file} evaluates code at runtime`);
                 bad = true;
               }
             }
             if (bad) process.exit(1);
-            console.log("dist imports only its peer dependencies");
+            console.log("dist evaluates no code at runtime");
           '
 
       - name: package contents
@@ -100,6 +87,7 @@ jobs:
           test -f dist/index.cjs
           test -f dist/index.d.ts
           test -f dist/index.d.cts
+          tar -tzf /tmp/*.tgz | grep -qx package/THIRD_PARTY_NOTICES.md
 
       - name: contract suite over the fake platform
         run: pnpm test:unit

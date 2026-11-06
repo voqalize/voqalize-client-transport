@@ -7,6 +7,13 @@ settings:
 importers:
 
   .:
+    dependencies:
+      events:
+        specifier: ^3.3.0
+        version: 3.3.0
+      lodash:
+        specifier: ^4.17.21
+        version: 4.18.1
     devDependencies:
       '@eslint/js':
         specifier: ^9.38.0
@@ -15,7 +22,7 @@ importers:
         specifier: ^1.13.0
         version: 1.13.1
       '@pipecat-ai/small-webrtc-transport':
-        specifier: ^1.10.8
+        specifier: 1.10.8
         version: 1.10.8(@pipecat-ai/client-js@1.13.1)
       '@playwright/test':
         specifier: ^1.56.0
@@ -23,6 +30,9 @@ importers:
       '@types/node':
         specifier: ^26.4.1
         version: 26.4.1
+      esbuild:
+        specifier: ^0.25.12
+        version: 0.25.12
       eslint:
         specifier: ^9.38.0
         version: 9.39.5

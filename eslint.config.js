@@ -20,4 +20,9 @@ export default tseslint.config(
       "@typescript-eslint/no-non-null-assertion": "off",
     },
   },
+  {
+    // The post-build steps run in Node.
+    files: ["scripts/**"],
+    languageOptions: { globals: { console: "readonly", process: "readonly" } },
+  },
 );
