@@ -5,6 +5,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **daily-js is gone from apps that use this package.** pipecat's
+  `SmallWebRTCTransport` imports `@daily-co/daily-js` at the top of its module
+  for its default media manager. This package never builds that manager, but
+  every bundler kept the import, so each app shipped daily's SDK and had to
+  configure its own bundler to avoid it. The package now bundles pipecat's
+  transport (1.10.8, unmodified) with daily replaced by a stub, and the build
+  fails if daily's code or any import other than `@pipecat-ai/client-js`
+  reaches `dist/`.
+- `@pipecat-ai/small-webrtc-transport` is no longer a peer dependency. Remove
+  it from your app unless something else there imports it.
+  `SmallWebRTCTransport` and its option types (`IceConfig`,
+  `SmallWebRTCTransportConnectionOptions`,
+  `SmallWebRTCTransportConstructorOptions`) are exported from here.
+- The bundled code's licences ship in `THIRD_PARTY_NOTICES.md`.
+
 ## [0.4.1] — 2026-11-01
 
 ### Changed

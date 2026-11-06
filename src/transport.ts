@@ -36,6 +36,10 @@
  * own `setLocalTrackChangedHandler` and performs the `replaceTrack` the stock
  * transport performs for its own default. Same behaviour, same lane mapping,
  * no fork of pipecat.
+ *
+ * The transport imported below is bundled into this package's `dist/`
+ * unmodified, except that its `@daily-co/daily-js` import resolves to
+ * `src/vendor/noDaily.ts` (see `tsup.config.ts`).
  */
 
 import { logger } from "@pipecat-ai/client-js";
