@@ -173,8 +173,13 @@ for `instanceof DeviceError`. Two build steps hold the result:
   The bundled declarations name `MediaManagerSurface` in its place, the shape
   this package already implements.
 - `scripts/check-dist.mjs` — fails when daily's code is in `dist/`, when
-  anything but `@pipecat-ai/client-js` is imported, or when a bundled package
-  has no licence section in `THIRD_PARTY_NOTICES.md`.
+  `dist/` imports anything but `@pipecat-ai/client-js`, `events` and `lodash`,
+  or when a bundled package has no licence section in `THIRD_PARTY_NOTICES.md`.
+
+`events` and `lodash` are what the transport imports besides daily. They are
+ordinary `dependencies`, not bundled, because client-js imports `events` too
+and an app's bundler can only share a copy it can see: bundling them put two
+of each in the site snippet.
 
 Not forking pipecat still holds: the transport's code is unmodified. A pipecat
 fix reaches apps through a release of this package that moves the pin.

@@ -20,7 +20,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `SmallWebRTCTransport` and its option types (`IceConfig`,
   `SmallWebRTCTransportConnectionOptions`,
   `SmallWebRTCTransportConstructorOptions`) are exported from here.
-- The bundled code's licences ship in `THIRD_PARTY_NOTICES.md`.
+- `events` and `lodash`, which pipecat's transport imports, are now
+  dependencies of this package.
+- The bundled transport's licence ships in `THIRD_PARTY_NOTICES.md`.
 
 ## [0.4.1] — 2026-11-01
 

@@ -4,14 +4,13 @@
  * - **No daily-js.** pipecat's transport is bundled with daily stubbed out
  *   (`src/vendor/noDaily.ts`); daily's own code carries `DailyIframe` and the
  *   `c.daily.co` origin it loads its call machine from.
- * - **One import.** `@pipecat-ai/client-js`, the peer, is the only module the
- *   JS or the types may name. Anything else is a package the consumer was told
- *   it need not install.
+ * - **Declared imports only.** The peer `@pipecat-ai/client-js`, and `events`
+ *   and `lodash` (dependencies). Anything else is a package the consumer was
+ *   told it need not install.
  * - **Every bundled package has its licence in THIRD_PARTY_NOTICES.md**, read
- *   off the `// node_modules/...` path comments esbuild writes above each
- *   module it inlines.
+ *   off the metafiles tsup writes, which are then deleted.
  */
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, rmSync } from "node:fs";
 import { transformSync } from "esbuild";
 
 const fail = (msg) => {
@@ -20,7 +19,13 @@ const fail = (msg) => {
 };
 
 const DAILY = /DailyIframe|c\.daily\.co/;
-const PEER = "@pipecat-ai/client-js";
+// The peer, and what pipecat's transport imports that is not daily: kept
+// external so an app shares one copy with client-js (`package.json`).
+const ALLOWED = (spec) =>
+  spec === "@pipecat-ai/client-js" ||
+  spec === "events" ||
+  spec === "lodash" ||
+  spec.startsWith("lodash/");
 // A bare `require(` only: lodash probes for Node with `freeModule.require("util")`
 // inside a try, which is not an import.
 const SPECIFIER = /(?:\bfrom\s*|\bimport\s*\(\s*|(?<![.\w$])require\s*\(\s*)["']([^"']+)["']/g;
@@ -36,21 +41,22 @@ for (const file of ["dist/index.js", "dist/index.cjs", "dist/index.d.ts", "dist/
       ? text.replace(/\/\*[\s\S]*?\*\//g, "")
       : transformSync(text, { loader: "js", minifyWhitespace: true, legalComments: "none" }).code;
   for (const [, spec] of code.matchAll(SPECIFIER)) {
-    if (spec !== PEER) fail(`${file} imports "${spec}"; only ${PEER} may be imported`);
+    if (!ALLOWED(spec)) fail(`${file} imports "${spec}", which is not a declared dependency`);
   }
 }
 
 const notices = readFileSync("THIRD_PARTY_NOTICES.md", "utf8");
 const headings = new Set([...notices.matchAll(/^## (\S+)$/gm)].map((m) => m[1]));
 const bundled = new Set();
-for (const [, dir] of readFileSync("dist/index.js", "utf8").matchAll(
-  /^\/\/ node_modules\/\.pnpm\/([^/]+)\/node_modules\//gm,
-)) {
-  // `@scope+name@version_peer…` or `name@version`
-  const at = dir.indexOf("@", dir.startsWith("@") ? 1 : 0);
-  bundled.add(dir.slice(0, at).replace("+", "/"));
+for (const meta of readdirSync("dist").filter((f) => /^metafile-.*\.json$/.test(f))) {
+  for (const input of Object.keys(JSON.parse(readFileSync(`dist/${meta}`, "utf8")).inputs)) {
+    // …/node_modules/<name or @scope/name>/… — the last node_modules wins.
+    const m = input.match(/.*node_modules\/((?:@[^/]+\/)?[^/]+)\//);
+    if (m) bundled.add(m[1]);
+  }
+  rmSync(`dist/${meta}`); // not for publishing
 }
-if (bundled.size === 0) fail("found no bundled packages: has the esbuild path comment changed?");
+if (bundled.size === 0) fail("found no bundled packages: did tsup stop writing its metafile?");
 for (const name of bundled) {
   if (!headings.has(name)) fail(`${name} is bundled but has no section in THIRD_PARTY_NOTICES.md`);
 }

@@ -65,6 +65,10 @@
     "report": "playwright show-report",
     "prepublishOnly": "pnpm build"
   },
+  "dependencies": {
+    "events": "^3.3.0",
+    "lodash": "^4.17.21"
+  },
   "peerDependencies": {
     "@pipecat-ai/client-js": ">=1.13.0 <2"
   },
