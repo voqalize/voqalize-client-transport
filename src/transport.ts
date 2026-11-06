@@ -46,6 +46,7 @@ import { logger } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 import type { SmallWebRTCTransportConstructorOptions } from "@pipecat-ai/small-webrtc-transport";
 
+import { acceptPlainHeaders } from "./headers";
 import { keepCallAcrossPageLoads, sessionCallStore } from "./keepCall";
 import { VoqalizeMediaManager } from "./mediaManager";
 import { reconnectOnNetworkChange } from "./reconnect";
@@ -134,6 +135,9 @@ export function createVoqalizeTransport(
   });
 
   attachTrackChangedHandler(transport, manager);
+  // Installed first, so keepCall's wrap sits outside it and whatever request
+  // keepCall settles on (the app's or the saved one) passes through here.
+  acceptPlainHeaders(transport);
   const hasLiveCall = keepAcrossPageLoads
     ? keepCallAcrossPageLoads(transport, sessionCallStore())
     : () => false;

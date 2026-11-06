@@ -632,6 +632,16 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
 
   /**
    * @internal
+   * Play a bound element whose `srcObject` was just set, as
+   * `createVoqalizeClient()` does. A refusal arms the retry on the next
+   * gesture, which a bare `element.play()` from outside would not.
+   */
+  playOutput(element: OutputElementLike): Promise<void> {
+    return this.ensurePlaying(element);
+  }
+
+  /**
+   * @internal
    * True while the browser is refusing to play at least one bound element.
    *
    * Autoplay is the failure where every other number looks healthy — frames

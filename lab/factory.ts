@@ -19,6 +19,8 @@ import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 
+import { createVoqalizeClient } from "../src/client";
+import type { SessionParams, VoqalizeClient } from "../src/clientTypes";
 import { createVoqalizeTransport, attachTrackChangedHandler } from "../src/transport";
 import { VoqalizeMediaManager } from "../src/mediaManager";
 import { startInPageBot } from "./inPageBot";
@@ -293,6 +295,73 @@ const factory = {
       () => (keptOutcome = "resolved"),
       (error: unknown) => (keptOutcome = `rejected: ${String(error)}`),
     );
+  },
+
+  /**
+   * `createVoqalizeClient()`, connected the way the docs say: the
+   * `sessions.connect` body exactly as `JSON.parse` returns it, snake_case
+   * and with `headers` a plain object. The offer endpoint is a route the test
+   * answers; what it checks is that the offer went out, with its header.
+   */
+  async plainConnect(endpoint: string): Promise<{ isPipecat: boolean; hasLiveCall: boolean }> {
+    const client: VoqalizeClient = createVoqalizeClient({ enableMic: false });
+    await client.initDevices();
+    const body = JSON.parse(
+      JSON.stringify({
+        webrtc_request_params: { endpoint, headers: { Authorization: "Bearer plain" } },
+        session_id: "plain",
+      }),
+    ) as SessionParams;
+    keptOutcome = "pending";
+    client.connect(body).then(
+      () => (keptOutcome = "resolved"),
+      (error: unknown) => (keptOutcome = `rejected: ${String(error)}`),
+    );
+    return { isPipecat: client instanceof PipecatClient, hasLiveCall: client.hasLiveCall };
+  },
+
+  /**
+   * `createVoqalizeClient({ audio })` on a real call to the in-page bot: the
+   * element gets the agent's track and plays it, with nothing else from the
+   * app. Then `disconnect()` takes the track away again.
+   */
+  async clientPlaysAgent(): Promise<{
+    track: boolean;
+    paused: boolean;
+    advanced: boolean;
+    clearedAfter: boolean;
+  }> {
+    const bot = await startInPageBot();
+    const audio = document.createElement("audio");
+    document.body.append(audio);
+    const client = createVoqalizeClient({ audio, enableMic: false });
+    try {
+      await client.initDevices();
+      void client
+        .connect({
+          webrtc_request_params: { endpoint: bot.endpoint, headers: {} },
+          session_id: "bot",
+        })
+        .catch(() => {});
+      const end = performance.now() + 10_000;
+      while (!(audio.srcObject && audio.currentTime > 0.3) && performance.now() < end) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      const before = audio.currentTime;
+      await new Promise((r) => setTimeout(r, 500));
+      const result = {
+        track: audio.srcObject instanceof MediaStream,
+        paused: audio.paused,
+        advanced: audio.currentTime > before,
+      };
+      await client.disconnect();
+      await new Promise((r) => setTimeout(r, 200));
+      return { ...result, clearedAfter: audio.srcObject === null };
+    } finally {
+      await client.disconnect().catch(() => {});
+      audio.remove();
+      await bot.stop();
+    }
   },
 
   keptState(): { outcome: string; hasLiveCall: boolean } {

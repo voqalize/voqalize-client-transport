@@ -1,0 +1,31 @@
+# The newest client-js, weekly, before an app finds out for us. The peer range
+# lets an app install any 1.x, and pipecat publishes often; a failure here is
+# the cue to follow a change in `src/clientTypes.ts` or narrow the range.
+name: canary
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  latest:
+    name: client-js latest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm add -D @pipecat-ai/client-js@latest
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test:unit
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm exec playwright test e2e/factory.spec.ts --project=chromium

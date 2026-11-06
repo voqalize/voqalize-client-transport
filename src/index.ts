@@ -4,6 +4,11 @@
  *
  * The public surface is deliberately small:
  *
+ *   `createVoqalizeClient()` — the client for a page: pipecat's
+ *   `PipecatClient` over our transport, typed as `VoqalizeClient`, so the
+ *   app imports nothing from pipecat. The types it is described in
+ *   (`src/clientTypes.ts`) are ours and import nothing.
+ *
  *   `createVoqalizeTransport()` — a stock `SmallWebRTCTransport` with our
  *   media manager in place of the default one, fully wired. Drop it where
  *   you build your transport today and nothing else in your app changes.
@@ -27,6 +32,22 @@
  * Everything else in `src/` is internal and may change in any release.
  */
 
+export { createVoqalizeClient, isDeviceError } from "./client";
+export type { VoqalizeClientOptions } from "./client";
+export type {
+  ActionData,
+  AgentOutput,
+  AppProtocol,
+  BotReady,
+  ConnectionState,
+  DeviceProblem,
+  ErrorMessage,
+  ParticipantInfo,
+  SessionParams,
+  UserTranscript,
+  VoqalizeClient,
+  VoqalizeEvents,
+} from "./clientTypes";
 export { createVoqalizeTransport, attachTrackChangedHandler } from "./transport";
 export type { VoqalizeTransportOptions } from "./transport";
 export { VoqalizeMediaManager } from "./mediaManager";

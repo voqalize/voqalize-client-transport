@@ -155,6 +155,30 @@ test("keepAcrossPageLoads rejoins across a real reload, and forgets a refused ca
   expect(await page.evaluate(() => window.__factory.keptPage())).toBe(false);
 });
 
+test("createVoqalizeClient connects with the sessions.connect body as JSON gives it", async ({
+  page,
+}) => {
+  const offers: Array<string | null> = [];
+  await page.route("**/__offer", async (route) => {
+    offers.push(await route.request().headerValue("authorization"));
+    await route.fulfill({ status: 410, body: "{}" });
+  });
+  const result = await page.evaluate(
+    (endpoint) => window.__factory.plainConnect(endpoint),
+    "http://127.0.0.1:5183/__offer",
+  );
+  expect(result).toEqual({ isPipecat: true, hasLiveCall: false });
+  // Plain-object headers used to throw a TypeError before any offer went out.
+  await expect.poll(() => offers).toEqual(["Bearer plain"]);
+});
+
+test("createVoqalizeClient plays the agent on the element it is given", async ({ page }) => {
+  // A real click first, so no engine's autoplay policy decides the outcome.
+  await page.mouse.click(1, 1);
+  const result = await page.evaluate(() => window.__factory.clientPlaysAgent());
+  expect(result).toEqual({ track: true, paused: false, advanced: true, clearedAfter: true });
+});
+
 // The network changing under a call: a real transport, a real rebuild, and an
 // in-page bot on the far end (`lab/inPageBot.ts`).
 test.describe("a rebuilt connection", () => {
