@@ -56,17 +56,39 @@ The options:
 - `keepAcrossPageLoads`: keep the session across a reload or a link on the same
   site. `client.hasLiveCall` then says whether there is one to rejoin with
   `client.connect()` ([below](#keep-the-call-across-page-loads)).
-- `mediaManager`: your own `VoqalizeMediaManager`, when the app needs it first.
 
 **What the client is.** It is pipecat's `PipecatClient`, over the transport
 this package builds, with nothing wrapped around it. What it is handed back as
-is `VoqalizeSession`, a type this package declares itself: the members and
+is `VoqalizeClient`, a type this package declares itself: the members and
 events listed in [`src/clientTypes.ts`](src/clientTypes.ts), with their payload
-types (`ActionData`, `AgentOutput`, `UserTranscript`, `DeviceProblem` and the
-rest). A pipecat release that adds or changes something does not change what
+types (`BotReady`, `ActionData`, `AgentOutput`, `UserTranscript`,
+`ErrorMessage`, `DeviceProblem` and the rest). A pipecat release that adds or changes something does not change what
 your app sees; we follow it, or not, in a release of this package. Event and
 method names are pipecat's, and pipecat's `RTVIEvent` constants still work
 with `on()`.
+
+**Type your protocol with the brain.** Describe what your brain dispatches and
+what your page sends it, and the client checks the names and payloads:
+
+```ts
+import { createVoqalizeClient, type AppProtocol } from "@voqalize/client-transport";
+
+interface Shop extends AppProtocol {
+  actions: { show_product: { sku: string }; open_cart: null };
+  uiEvents: { added_to_cart: { sku: string; qty: number } };
+}
+
+const client = createVoqalizeClient<Shop>();
+client.on("uiCommand", (action) => {
+  if (action.command === "show_product") showProduct(action.payload.sku);
+});
+client.sendUIEvent("added_to_cart", { sku, qty: 1 });
+```
+
+The keys are `actions` (the brain's `dispatch`), `uiEvents` (its
+`on_ui_event`), `clientMessages` and `serverMessage` (its `send_rtvi`). Each is
+optional; one left out takes any name and an `unknown` payload. Nothing checks
+them at runtime: the protocol is your statement of what your own brain sends.
 
 Device choice is part of it: `initDevices()`, `getAllMics()`,
 `getAllSpeakers()`, `updateMic()`, `updateSpeaker()`, `selectedMic`,

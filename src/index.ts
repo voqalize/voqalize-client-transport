@@ -5,7 +5,7 @@
  * The public surface is deliberately small:
  *
  *   `createVoqalizeClient()` — the client for a page: pipecat's
- *   `PipecatClient` over our transport, typed as `VoqalizeSession`, so the
+ *   `PipecatClient` over our transport, typed as `VoqalizeClient`, so the
  *   app imports nothing from pipecat. The types it is described in
  *   (`src/clientTypes.ts`) are ours and import nothing.
  *
@@ -37,6 +37,8 @@ export type { VoqalizeClientOptions } from "./client";
 export type {
   ActionData,
   AgentOutput,
+  AppProtocol,
+  BotReady,
   ConnectionState,
   DeviceProblem,
   ErrorMessage,
@@ -45,7 +47,6 @@ export type {
   UserTranscript,
   VoqalizeClient,
   VoqalizeEvents,
-  VoqalizeSession,
 } from "./clientTypes";
 export { createVoqalizeTransport, attachTrackChangedHandler } from "./transport";
 export type { VoqalizeTransportOptions } from "./transport";

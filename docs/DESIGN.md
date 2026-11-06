@@ -189,19 +189,30 @@ fix reaches apps through a release of this package that moves the pin.
 An app on Voqalize should import nothing from pipecat, and should not have to
 follow pipecat's releases. Replacing `PipecatClient` is out of scope, so the
 boundary is in the types: `createVoqalizeClient()` builds a real
-`PipecatClient` and returns it as `VoqalizeSession`, which `src/clientTypes.ts`
+`PipecatClient` and returns it as `VoqalizeClient`, which `src/clientTypes.ts`
 declares and which imports nothing. Nothing wraps the object; the voqalize
 repo's rule against a client wrapper over pipecat's client still holds.
 
 The rules that keep the types honest:
 
 - **Every member is one `PipecatClient` has**, by the same name, with a type
-  pipecat's is assignable to. `const supported: VoqalizeClient = client` in
-  `src/client.ts` is the check, and it runs against whichever client-js is
+  pipecat's is assignable to. `const supported: PipecatMembers = client` in
+  `src/client.ts` is the check (`PipecatMembers` is `VoqalizeClient` without
+  `hasLiveCall`, `on` and `off`), and it runs against whichever client-js is
   installed; CI installs the floor of the peer range, the newest 1.x, and
   weekly `latest`. When pipecat changes a member we offer, this assignment is
   where it shows, and we widen our type (`sendText` now returns
   `Promise<unknown>`, because 1.16.0 made it `Promise<string>`).
+- **Every event is one pipecat emits, with its payload or a narrowing of
+  it.** `on()` takes a handler, so a plain assignment would refuse any payload
+  narrower than pipecat's, and narrowing is the point: pipecat types an
+  error's `data`, a server message and an action's payload as `unknown` or
+  `any`, and we type them to what gato sends (`ErrorMessage.data` is
+  `{error, fatal}`) or to the app's `AppProtocol`. `everyEventIsPipecats` in
+  `src/client.ts` checks each event: ours and pipecat's handler arguments must
+  be assignable one way or the other, so `command: number` fails where
+  `command: "show_product"` passes. A narrowing is a claim about the wire that
+  no compiler can check; each one names what sends it.
 - **A member pipecat lacks goes on the instance**, as `hasLiveCall` does with
   `Object.defineProperty`, never by a wrapper. Keep these rare.
 - **Names are pipecat's** where the object already has them (`botReady`,

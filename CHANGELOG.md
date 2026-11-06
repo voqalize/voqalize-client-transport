@@ -11,11 +11,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **`createVoqalizeClient()`, so a Voqalize page imports nothing from
   pipecat.** It returns pipecat's `PipecatClient` over this package's
-  transport, unwrapped, typed as `VoqalizeSession`: the members and events we
-  support, in types this package declares (`VoqalizeClient`, `VoqalizeEvents`,
-  `ConnectionState`, `SessionParams`, `ActionData`, `AgentOutput`,
-  `UserTranscript`, `ErrorMessage`, `DeviceProblem`, `ParticipantInfo`). Device
-  selection is included. `audio` hands it the element the agent plays on.
+  transport, unwrapped, typed as `VoqalizeClient`: the members and events we
+  support, in types this package declares and exports, with each payload typed
+  to what gato sends. `SessionParams` is the `sessions.connect` body, and
+  `connect()` resolves with `BotReady`. Device selection is included. `audio`
+  hands it the element the agent plays on.
+- **`AppProtocol`**: `createVoqalizeClient<P>()` types the actions a brain
+  dispatches (`uiCommand`), the UI events and client messages a page sends,
+  and the server messages a brain sends, by name and payload.
 - `isDeviceError()`, in place of importing pipecat's `DeviceError` to test
   with `instanceof`.
 - CI type-checks and tests against `@pipecat-ai/client-js` 1.13.0, the newest

@@ -10,15 +10,17 @@
  * - Events we do not offer are compile errors, and pipecat's `RTVIEvent`
  *   constants still work for the ones we do.
  *
- * That a `PipecatClient` is a `VoqalizeClient` is checked in `src/client.ts`
- * itself, where the assignment happens.
+ * - An `AppProtocol` types actions, UI events and client messages by name.
+ *
+ * That a `PipecatClient` has every member and event we offer is checked in
+ * `src/client.ts` itself, where the assignment happens.
  */
 import { readFileSync } from "node:fs";
 
 import { RTVIEvent } from "@pipecat-ai/client-js";
 import { describe, expect, it } from "vitest";
 
-import type { VoqalizeSession } from "../src/clientTypes";
+import type { AppProtocol, VoqalizeClient } from "../src/clientTypes";
 
 type ClientHandler = (...args: any[]) => void;
 
@@ -54,11 +56,11 @@ interface AvatarClientLike {
 }
 
 /** Never called: its body is the assertion. */
-function theSessionFitsItsConsumers(session: VoqalizeSession): void {
-  const stage: StageClient = session;
-  const holder: HolderClient = session;
-  const relayed: RelayedClient = session;
-  const avatar: AvatarClientLike = session;
+function theClientFitsItsConsumers(client: VoqalizeClient): void {
+  const stage: StageClient = client;
+  const holder: HolderClient = client;
+  const relayed: RelayedClient = client;
+  const avatar: AvatarClientLike = client;
   void [stage, holder, relayed, avatar];
 
   // The body sessions.connect returns, as JSON.parse gives it.
@@ -67,22 +69,72 @@ function theSessionFitsItsConsumers(session: VoqalizeSession): void {
       endpoint: "https://signal.example/webrtc",
       headers: { Authorization: "Bearer t" },
     },
+    session_id: "s",
+    ice_config: { iceServers: [{ urls: ["turn:t.example"], username: "u", credential: "c" }] },
   };
-  void session.connect(body);
-  void session.connect(); // a rejoin
+  void client.connect(body).then((ready) => void ready.version);
+  void client.connect(); // a rejoin
+  void client.hasLiveCall;
+  // @ts-expect-error the body names its endpoint
+  void client.connect({ session_id: "s" });
 
-  session.on("uiCommand", (action) => void action.command);
-  session.on(RTVIEvent.UICommand, (action) => void action.payload);
-  session.on("botOutput", (output) => void output.output_type);
-  session.on("deviceError", (error) => void error.devices);
+  client.on("uiCommand", (action) => void action.command);
+  client.on(RTVIEvent.UICommand, (action) => void action.payload);
+  client.on("botOutput", (output) => void output.spoken_status);
+  client.on("error", (message) => void message.data.fatal);
+  client.on(
+    "deviceError",
+    (error) => error.devices.includes("mic") && error.type === "permissions",
+  );
+  client.sendUIEvent("anything", { any: "payload" });
+  client.sendUIEvent("bare");
+  client.sendClientMessage("anything");
   // @ts-expect-error not an event we offer
-  session.on("metrics", () => {});
+  client.on("metrics", () => {});
   // @ts-expect-error the payload is ours, not any
-  session.on("uiCommand", (action: number) => void action);
+  client.on("uiCommand", (action: number) => void action);
+  // @ts-expect-error gato never sent output_type
+  client.on("botOutput", (output) => void output.output_type);
+  // @ts-expect-error not a status pipecat has
+  client.on("botOutput", (output) => output.spoken_status === "done");
   // @ts-expect-error not a member we offer
-  void session.enableCam;
+  void client.enableCam;
 }
-void theSessionFitsItsConsumers;
+void theClientFitsItsConsumers;
+
+interface Shop extends AppProtocol {
+  actions: { show_product: { sku: string }; open_cart: null };
+  uiEvents: { added_to_cart: { sku: string; qty: number }; cart_opened: undefined };
+  serverMessage: { type: "stock"; sku: string; left: number };
+}
+
+/** Never called: an app's protocol narrows names and payloads. */
+function aProtocolTypesTheApp(client: VoqalizeClient<Shop>): void {
+  client.on("uiCommand", (action) => {
+    if (action.command === "show_product") void action.payload.sku;
+    // @ts-expect-error open_cart's payload is null
+    if (action.command === "open_cart") void action.payload.sku;
+    // @ts-expect-error not an action the brain sends
+    if (action.command === "close_cart") return;
+  });
+  client.on("serverMessage", (message) => void message.left);
+  client.sendUIEvent("added_to_cart", { sku: "a", qty: 1 });
+  client.sendUIEvent("cart_opened");
+  // @ts-expect-error a UI event the brain does not handle
+  client.sendUIEvent("checkout", {});
+  // @ts-expect-error added_to_cart needs its payload
+  client.sendUIEvent("added_to_cart");
+  // @ts-expect-error qty is a number
+  client.sendUIEvent("added_to_cart", { sku: "a", qty: "1" });
+  // No clientMessages in Shop: any type, any data.
+  client.sendClientMessage("whatever", 1);
+
+  // A protocol client is still every consumer's client.
+  const stage: StageClient = client;
+  const avatar: AvatarClientLike = client;
+  void [stage, avatar];
+}
+void aProtocolTypesTheApp;
 
 describe("the narrow client", () => {
   it("declares its types without importing anything", () => {

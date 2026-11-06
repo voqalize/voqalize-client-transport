@@ -20,7 +20,7 @@ import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 import { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 
 import { createVoqalizeClient } from "../src/client";
-import type { VoqalizeSession } from "../src/clientTypes";
+import type { SessionParams, VoqalizeClient } from "../src/clientTypes";
 import { createVoqalizeTransport, attachTrackChangedHandler } from "../src/transport";
 import { VoqalizeMediaManager } from "../src/mediaManager";
 import { startInPageBot } from "./inPageBot";
@@ -304,13 +304,14 @@ const factory = {
    * answers; what it checks is that the offer went out, with its header.
    */
   async plainConnect(endpoint: string): Promise<{ isPipecat: boolean; hasLiveCall: boolean }> {
-    const client: VoqalizeSession = createVoqalizeClient({ enableMic: false });
+    const client: VoqalizeClient = createVoqalizeClient({ enableMic: false });
     await client.initDevices();
     const body = JSON.parse(
       JSON.stringify({
         webrtc_request_params: { endpoint, headers: { Authorization: "Bearer plain" } },
+        session_id: "plain",
       }),
-    ) as { webrtc_request_params: { endpoint: string; headers: Record<string, string> } };
+    ) as SessionParams;
     keptOutcome = "pending";
     client.connect(body).then(
       () => (keptOutcome = "resolved"),
@@ -336,7 +337,12 @@ const factory = {
     const client = createVoqalizeClient({ audio, enableMic: false });
     try {
       await client.initDevices();
-      void client.connect({ webrtc_request_params: { endpoint: bot.endpoint } }).catch(() => {});
+      void client
+        .connect({
+          webrtc_request_params: { endpoint: bot.endpoint, headers: {} },
+          session_id: "bot",
+        })
+        .catch(() => {});
       const end = performance.now() + 10_000;
       while (!(audio.srcObject && audio.currentTime > 0.3) && performance.now() < end) {
         await new Promise((r) => setTimeout(r, 50));
