@@ -320,6 +320,9 @@ const factory = {
     restart: unknown;
     offerAfterMs: number | null;
     newHeard: boolean;
+    /** Whether `tracks().bot.audio` was the agent's track heard, before and after the rebuild. */
+    botTrackFirst: boolean;
+    botTrackAfter: boolean;
     /** What a failure needs to be read: the offers, and where the connection got to. */
     offers: number;
     state: string;
@@ -358,6 +361,7 @@ const factory = {
       await client.initDevices();
       void client.connect().catch(() => {});
       const firstHeard = await until(() => heard.length > 0, 10_000);
+      const botTrackFirst = manager.tracks().bot?.audio?.id === heard[0];
       // With `waitForICEGathering`, the transport renegotiates once more when
       // gathering ends during checking, and a rebuild asked for meanwhile is
       // skipped. Let that settle, or the trigger below can land in it.
@@ -382,7 +386,10 @@ const factory = {
       const second = bot.offers[1];
       const fresh = remoteAudio(internals.pc);
       const newHeard = rebuilt && (await until(() => heard.includes(fresh!), 5_000));
+      const botTrackAfter = rebuilt && manager.tracks().bot?.audio?.id === fresh;
       return {
+        botTrackFirst,
+        botTrackAfter,
         firstHeard,
         rebuilt,
         restart: second?.restart,

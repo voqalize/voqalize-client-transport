@@ -172,6 +172,9 @@ test.describe("a rebuilt connection", () => {
         rebuilt: true,
         restart: true,
         newHeard: true,
+        // `tracks().bot.audio` follows the agent's track to the new connection.
+        botTrackFirst: true,
+        botTrackAfter: true,
       });
     });
   }

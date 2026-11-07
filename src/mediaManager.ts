@@ -339,6 +339,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   private readonly makeStream: ((tracks: TrackLike[]) => StreamLike) | undefined;
   private readonly guards = new Map<OutputElementLike, PlayoutGuard>();
   private statsSource: PlayoutStatsSource | null = null;
+  private botAudioSource: (() => TrackLike | null) | null = null;
 
   private deviceChangeTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onDeviceChange = () => this.scheduleDeviceChange();
@@ -500,6 +501,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     this.levelMeter.stop();
     this.armGestures(false);
     this.statsSource = null;
+    this.botAudioSource = null;
     this.outputElements.clear();
     this.destroyed = true;
     this.initialized = false;
@@ -613,6 +615,17 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
    */
   setStatsSource(source: PlayoutStatsSource | null): void {
     this.statsSource = source;
+  }
+
+  /**
+   * @internal
+   * Where `tracks().bot.audio` reads the agent's voice from: the current peer
+   * connection's incoming audio. `createVoqalizeTransport()` does this, and so
+   * does `attachTrackChangedHandler()`. Read on every call rather than kept,
+   * because a network change replaces the peer connection and its track.
+   */
+  setBotAudioSource(source: (() => TrackLike | null) | null): void {
+    this.botAudioSource = source;
   }
 
   private guard(element: OutputElementLike): void {
@@ -867,14 +880,31 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     return true;
   }
 
-  /** The published clones — what the peer connection carries, never the capture tracks. */
+  /**
+   * `local` is the published clones — what the peer connection carries, never
+   * the capture tracks. `bot.audio` is the agent's voice as it arrives, live,
+   * for an app that analyses or plays it itself; it is absent before the call
+   * connects and after it ends.
+   */
   tracks(): Tracks {
     const local: Tracks["local"] = {};
     if (this.slots.audio.published) local.audio = asTrack(this.slots.audio.published);
     if (this.slots.video.published) local.video = asTrack(this.slots.video.published);
     // `screenAudio` is never populated — decision 9.
     if (this.screen.published) local.screenVideo = asTrack(this.screen.published);
-    return { local };
+    const botAudio = this.readBotAudio();
+    return botAudio ? { local, bot: { audio: asTrack(botAudio) } } : { local };
+  }
+
+  private readBotAudio(): TrackLike | null {
+    if (this.destroyed || !this.botAudioSource) return null;
+    try {
+      const track = this.botAudioSource();
+      return track && track.readyState === "live" ? track : null;
+    } catch {
+      // The transport's internals moved; the call is unaffected, only this read.
+      return null;
+    }
   }
 
   /**

@@ -51,6 +51,7 @@ import { VoqalizeMediaManager } from "./mediaManager";
 import { reconnectOnNetworkChange } from "./reconnect";
 import type { LocalTrackChangedEvent } from "./mediaManager";
 import type { MediaManagerSurface } from "./pipecatTypes";
+import type { TrackLike } from "./mediaPlatform";
 
 /**
  * The undeclared-but-present members of `SmallWebRTCTransport` this file uses.
@@ -170,6 +171,24 @@ export function attachTrackChangedHandler(
     const pc = internals.pc;
     if (!pc || pc.connectionState === "closed") return null;
     return pc.getStats();
+  });
+
+  // The agent's voice for `tracks().bot`: the audio transceiver's receiver on
+  // whichever peer connection is current, or any incoming audio if the
+  // transceiver getter has gone.
+  manager.setBotAudioSource(() => {
+    const pc = internals.pc;
+    if (!pc || pc.connectionState === "closed") return null;
+    let transceiver: RTCRtpTransceiver | undefined;
+    try {
+      transceiver = internals.getAudioTransceiver?.call(internals);
+    } catch {
+      transceiver = undefined;
+    }
+    const track =
+      transceiver?.receiver.track ??
+      pc.getReceivers().find((r) => r.track?.kind === "audio")?.track;
+    return (track as TrackLike | undefined) ?? null;
   });
 
   manager.setLocalTrackChangedHandler(async (event: LocalTrackChangedEvent) => {

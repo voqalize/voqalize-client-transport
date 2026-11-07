@@ -5,6 +5,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **`tracks().bot.audio` is the agent's voice.** `tracks()` used to report only
+  the local tracks, so an app that wanted to analyse or play the agent's audio
+  itself had to catch it from `onTrackStarted`. It is now read from the current
+  peer connection on every call, so it follows the call across a network
+  change, and it is absent before the call connects and after it ends. Wired by
+  `createVoqalizeTransport()` and `attachTrackChangedHandler()`.
+
 ## [0.5.0] — 2026-11-06
 
 ### Changed
