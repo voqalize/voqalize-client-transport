@@ -90,61 +90,59 @@ export interface EncodingPolicy {
   contentHint: string;
   degradationPreference: RTCDegradationPreference;
   maxFramerate: number;
-  maxBitrate: number;
 }
 
 /**
  * Decision 8, in numbers.
  *
- * **Screen — 1920×1080 at 5 fps, 1.5 Mbps, `maintain-resolution`.** The content
- * is an application UI: mostly static, mostly text, and the failure that
- * matters is a caller who cannot read a field label. 1.5 Mbps over 5 fps is
- * 300 kbit per frame; across 1920×1080 that is ~0.145 bits per pixel, roughly
- * double the ~0.07 bpp where VP8/H.264 begins to smear small type, and the
- * static-frame case spends far less than the budget because only changed
- * macroblocks are coded. 5 fps is chosen against the actual motion in the
- * content — a cursor, a scroll, a page transition — not against video. Paired
- * with `maintain-resolution`, a scroll that blows the budget drops frames
- * instead of dropping to 960×540, which is the trade SPEC.md decision 8 makes
- * explicitly: "a blurry screen is a broken feature here, a slow one is not."
+ * **Screen — 1920×1080 at 5 fps, `maintain-resolution`.** The content is an
+ * application UI: mostly static, mostly text, and the failure that matters is
+ * a caller who cannot read a field label. 5 fps is chosen against the actual
+ * motion in the content — a cursor, a scroll, a page transition — not against
+ * video. Paired with `maintain-resolution`, a scroll that blows the budget
+ * drops frames instead of dropping to 960×540, which is the trade SPEC.md
+ * decision 8 makes explicitly: "a blurry screen is a broken feature here, a
+ * slow one is not."
  *
- * **Camera — 30 fps, 600 kbps, `maintain-framerate`.** The exact opposite bias.
- * A talking head is motion; a smaller, smooth face beats a sharp, stuttering
- * one, and 640×360-class video at 600 kbps is the well-trodden operating point.
+ * **Camera — 30 fps, `maintain-framerate`.** The exact opposite bias. A
+ * talking head is motion; a smaller, smooth face beats a sharp, stuttering one.
  *
- * **Mic — 32 kbps mono Opus**, matching what the voice runtime negotiates.
- * `maxFramerate` is meaningless for audio and is recorded as 0 rather than
- * omitted, so every entry has the same shape for 2b to iterate.
+ * **Mic.** `maxFramerate` is meaningless for audio and is recorded as 0 rather
+ * than omitted, so every entry has the same shape for 2b to iterate.
  *
- * Sum of the two video lanes: 2.1 Mbps. That is the uplink budget being split
- * deliberately (decision 10) rather than left to two encoders competing.
+ * **No bitrates.** The table once carried a ceiling per lane (32 kbps, 600 kbps,
+ * 1.5 Mbps), and nothing ever applied one. They were removed rather than
+ * applied (owner, 2026-11-10): the voice runtime caps what it receives on each
+ * video lane, per call, through its own congestion feedback, so one authority
+ * sets the budget; and the browser's own Opus default for speech is already
+ * about 32 kbps.
+ *
+ * What ships applies `contentHint` and, through the capture constraints below,
+ * the frame rates. `degradationPreference` and the sender's `maxFramerate` are
+ * applied only by the lab (SPEC.md phase 2b, not built).
  */
 export const ENCODING_POLICY: Readonly<Record<SlotKey, EncodingPolicy>> = {
   audio: {
     contentHint: "speech",
     degradationPreference: "maintain-framerate",
     maxFramerate: 0,
-    maxBitrate: 32_000,
   },
   video: {
     contentHint: "motion",
     degradationPreference: "maintain-framerate",
     maxFramerate: 30,
-    maxBitrate: 600_000,
   },
   screenVideo: {
     contentHint: "detail",
     degradationPreference: "maintain-resolution",
     maxFramerate: 5,
-    maxBitrate: 1_500_000,
   },
 };
 
 /**
  * What the camera is asked for, on top of the device id.
  *
- * 640×360 at 30 fps is the operating point `ENCODING_POLICY.video`'s 600 kbps
- * is chosen for. Constraining at *capture* rather than only at the sender
+ * 640×360 at 30 fps is the camera's operating point. Constraining at *capture* rather than only at the sender
  * means the browser never encodes and downscales frames nobody will see, which
  * on a laptop is measurable battery. Every field is an `ideal`: a camera that
  * cannot do 360p should hand us what it has, not fail the call.
@@ -158,8 +156,7 @@ export const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 /**
  * What `getDisplayMedia` is asked for. Every field is an `ideal`, never an
  * `exact`: a display is whatever size it is, and an over-constrained request is
- * an `OverconstrainedError` on a screen the user cannot resize. The ceiling
- * that actually holds is the sender's, in `ENCODING_POLICY`.
+ * an `OverconstrainedError` on a screen the user cannot resize.
  */
 export const SCREEN_CONSTRAINTS: MediaTrackConstraints = {
   width: { ideal: 1920 },

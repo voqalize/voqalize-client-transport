@@ -402,12 +402,13 @@
           <b>audio (m-line 0):</b> packets sent climbing by ~50/s, bytes climbing, audioLevel above
           0 when you speak — there is no <code>framesEncoded</code> for audio, and a blank there is
           correct. <b>video (m-line 1):</b> frames encoded climbing steadily, ~24–30&nbsp;fps,
-          640×360, roughly 300–600&nbsp;kbps — the policy is <code>maintain-framerate</code>, so a
-          face stays smooth and goes soft under pressure. <b>screenVideo (m-line 2):</b> frames
-          encoded climbing <i>slowly</i> — about 5&nbsp;fps is the policy, not a fault — at your
-          real display resolution, up to 1.5&nbsp;Mbps. It is <code>maintain-resolution</code>: a
-          scroll should drop frames, never sharpness. A lane that is idle shows a dash. A lane that
-          is live and stuck at <span class="zero">0</span> frames is the failure worth reporting.
+          640×360, at whatever rate the browser's congestion control settles on — the policy is
+          <code>maintain-framerate</code>, so a face stays smooth and goes soft under pressure.
+          <b>screenVideo (m-line 2):</b> frames encoded climbing <i>slowly</i> — about 5&nbsp;fps is
+          the policy, not a fault — at your real display resolution. It is
+          <code>maintain-resolution</code>: a scroll should drop frames, never sharpness. A lane
+          that is idle shows a dash. A lane that is live and stuck at
+          <span class="zero">0</span> frames is the failure worth reporting.
         </p>
       </section>
 

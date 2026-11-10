@@ -42,9 +42,19 @@
  * - The device moving networks rebuilds at once, without waiting for ICE to
  *   notice: a change of `navigator.connection.type` (wifi ↔ cellular, where
  *   the browser reports it, which is Android Chrome) or the page coming back
- *   `online`. Nothing is rebuilt while the browser says it is offline: every
- *   attempt would fail, and the transport gives up for good after a few.
+ *   `online`.
  * - `failed` is the stock transport's own: it rebuilds at once.
+ *
+ * ## Nothing is rebuilt while the browser is offline
+ *
+ * Every attempt would fail, and the stock transport gives up for good after a
+ * few: the call ends on a network that was coming back. So every rebuild —
+ * the timer above, a network move, ICE `failed`, and the stock transport's own
+ * retry two seconds after a failed offer — is held while the browser says it
+ * is offline, without spending one of those attempts, and made once when the
+ * page comes back `online`. `holdWhileOffline: false` switches the hold off and
+ * leaves every path as the stock transport has it, apart from the shorter
+ * grace.
  *
  * It reaches members of `SmallWebRTCTransport` that its `.d.ts` does not
  * declare: `_incomingTracks`, `pc`, `handleICEConnectionStateChange` and
@@ -77,17 +87,61 @@ export interface NetworkWatch {
   subscribe(onMoved: () => void): () => void;
 }
 
+export interface ReconnectOptions {
+  /**
+   * Hold every rebuild while the browser says it is offline, and make one
+   * when it comes back online. Default true.
+   */
+  holdWhileOffline?: boolean;
+}
+
 const installed = new WeakSet<object>();
 
 export function reconnectOnNetworkChange(
   transport: object,
   network: NetworkWatch | null = browserNetworkWatch(),
+  { holdWhileOffline = true }: ReconnectOptions = {},
 ): void {
   if (installed.has(transport)) return;
   installed.add(transport);
   const t = transport as Reconnectable;
   keepNewerIncomingTracks(t);
-  reconnectSooner(t, network);
+  const held = holdWhileOffline && network ? holdRebuildsWhileOffline(t, network) : null;
+  reconnectSooner(t, network, held);
+}
+
+/** Whether a rebuild was held, and clears it: the online handler's question. */
+type HeldRebuild = () => boolean;
+
+/**
+ * Wrap `attemptReconnection` so a call while offline is held, not spent. The
+ * stock transport calls it through `this`, so this one wrapper covers ICE
+ * `failed`, its retry after a failed offer, and ours.
+ */
+function holdRebuildsWhileOffline(t: Reconnectable, network: NetworkWatch): HeldRebuild | null {
+  const stock = ownMethod<(recreate?: boolean) => Promise<void>>(t, "attemptReconnection");
+  // The rebuild a hold owes is made from the online handler, which the faster
+  // reconnect installs only beside the ICE handler: without one, hold nothing.
+  const ice = ownMethod<() => void>(t, "handleICEConnectionStateChange");
+  if (typeof stock !== "function" || typeof ice !== "function") {
+    logger.debug("[voqalize] no reconnect members on this transport; offline hold is off");
+    return null;
+  }
+  let held = false;
+  t.attemptReconnection = function (this: Reconnectable, recreate?: boolean) {
+    if (network.offline()) {
+      if (!held) logger.debug("[voqalize] offline; holding the rebuild until the page is online");
+      held = true;
+      return Promise.resolve();
+    }
+    held = false;
+    return stock.call(this, recreate);
+  };
+  return () => {
+    const was = held;
+    held = false;
+    return was;
+  };
 }
 
 function keepNewerIncomingTracks(t: Reconnectable): void {
@@ -121,7 +175,11 @@ function ownMethod<F>(object: object, name: string): F | undefined {
   return undefined;
 }
 
-function reconnectSooner(t: Reconnectable, network: NetworkWatch | null): void {
+function reconnectSooner(
+  t: Reconnectable,
+  network: NetworkWatch | null,
+  held: HeldRebuild | null,
+): void {
   const stock = ownMethod<() => void>(t, "handleICEConnectionStateChange");
   if (typeof stock !== "function" || typeof t.attemptReconnection !== "function") {
     logger.debug("[voqalize] no ICE handler on this transport; faster reconnect is off");
@@ -159,6 +217,13 @@ function reconnectSooner(t: Reconnectable, network: NetworkWatch | null): void {
       unsubscribe();
       return;
     }
+    if (offline()) return;
+    // A rebuild held while offline is made now, whatever ICE says: the
+    // connection a failed retry left behind may never have got past "new".
+    if (held?.() && live.pc) {
+      rebuild(live, "back online with a rebuild held");
+      return;
+    }
     const pc = live.pc;
     // Only a call that has been up has a path to move. A first connect in
     // flight fails or succeeds on its own, and a rebuild already under way is
@@ -173,7 +238,6 @@ function reconnectSooner(t: Reconnectable, network: NetworkWatch | null): void {
       state !== "failed"
     )
       return;
-    if (offline()) return;
     rebuild(live, "the device moved networks");
   });
 }

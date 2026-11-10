@@ -13,6 +13,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   peer connection on every call, so it follows the call across a network
   change, and it is absent before the call connects and after it ends. Wired by
   `createVoqalizeTransport()` and `attachTrackChangedHandler()`.
+- **`holdRebuildsWhileOffline`, default true.** While the browser says it is
+  offline, every rebuild of the peer connection is held — ICE `failed`, a dead
+  path, and pipecat's retry after a failed offer, not only the network events
+  as before — without spending one of the transport's few attempts, and one
+  rebuild is made when the page comes back online. A call no longer ends on a
+  network that was coming back. `false` leaves those paths as pipecat has them.
+  `attachTrackChangedHandler()` takes the same option.
+
+### Fixed
+
+- **`keepAcrossPageLoads` forgets a call the server ended.** The saved request
+  is now forgotten on the server's `peerLeft`, which it sends only when the
+  call is over, as well as on `disconnectBot()` and a refused offer. A reload
+  after the agent hung up used to cost one refused offer.
+
+### Removed
+
+- **The per-lane bitrates in `ENCODING_POLICY`** (mic 32 kbps, camera 600 kbps,
+  screen 1.5 Mbps). Nothing ever applied them; the voice runtime sets the
+  budget it receives on each video lane, and the README no longer claims them.
 
 ## [0.5.0] — 2026-11-06
 

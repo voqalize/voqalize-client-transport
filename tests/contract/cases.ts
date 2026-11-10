@@ -1465,11 +1465,8 @@ export const CONTRACT_CASES: ContractCase[] = [
       const policy = await lab.encodingPolicy();
       deepEqual(Object.keys(policy).sort(), ["audio", "screenVideo", "video"]);
       equal(policy["audio"]?.contentHint, "speech");
-      equal(
-        policy["audio"]?.maxBitrate,
-        32_000,
-        "mono Opus, matching what the voice runtime negotiates",
-      );
+      // No bitrate anywhere: the voice runtime sets the budget it receives.
+      for (const lane of Object.values(policy)) equal("maxBitrate" in lane, false);
       equal(policy["video"]?.contentHint, "motion");
       equal(
         policy["video"]?.degradationPreference,
@@ -1477,13 +1474,11 @@ export const CONTRACT_CASES: ContractCase[] = [
         "a smooth face beats a sharp one",
       );
       equal(policy["video"]?.maxFramerate, 30);
-      equal(policy["video"]?.maxBitrate, 600_000);
       equal(policy["screenVideo"]?.contentHint, "detail");
       // The opposite bias, deliberately: a blurry screen is a broken feature,
       // a slow one is not, so a scroll drops frames rather than resolution.
       equal(policy["screenVideo"]?.degradationPreference, "maintain-resolution");
       equal(policy["screenVideo"]?.maxFramerate, 5);
-      equal(policy["screenVideo"]?.maxBitrate, 1_500_000);
     },
   },
 
@@ -1825,7 +1820,6 @@ export const CONTRACT_CASES: ContractCase[] = [
       await lab.enableScreenShare(true);
       await lab.pcOpen();
 
-      const policy = await lab.encodingPolicy();
       const applied = await lab.pcApplyEncoding();
       equal(applied.length, 3, "one result per lane");
 
@@ -1837,7 +1831,6 @@ export const CONTRACT_CASES: ContractCase[] = [
         note(
           `setParameters[${lane.lane}]: error=${lane.error} encodings=${lane.encodingCount} ` +
             `degradationPreference=${lane.degradationPreference} (asked ${lane.requested.degradationPreference}) ` +
-            `maxBitrate=${lane.maxBitrate} (asked ${lane.requested.maxBitrate}) ` +
             `maxFramerate=${lane.maxFramerate} (asked ${lane.requested.maxFramerate})`,
         );
         equal(lane.error, null, `setParameters was accepted for ${lane.lane}`);
@@ -1847,7 +1840,6 @@ export const CONTRACT_CASES: ContractCase[] = [
       const screen = applied.find((a) => a.lane === "screenVideo");
       ok(screen, "the screen lane is in the report");
       // Decision 8's two numbers, read back off the sender rather than trusted.
-      equal(screen.maxBitrate, policy["screenVideo"]?.maxBitrate, "screen maxBitrate stuck");
       equal(screen.maxFramerate, 5, "screen maxFramerate stuck at the policy's 5");
       equal(
         screen.degradationPreference,
@@ -1857,13 +1849,11 @@ export const CONTRACT_CASES: ContractCase[] = [
 
       const video = applied.find((a) => a.lane === "video");
       ok(video, "the camera lane is in the report");
-      equal(video.maxBitrate, policy["video"]?.maxBitrate, "camera maxBitrate stuck");
       equal(video.maxFramerate, 30);
       equal(video.degradationPreference, "maintain-framerate", "a face stays smooth, not sharp");
 
       const audio = applied.find((a) => a.lane === "audio");
       ok(audio, "the mic lane is in the report");
-      equal(audio.maxBitrate, policy["audio"]?.maxBitrate, "mic maxBitrate stuck");
       // The policy records 0 rather than omitting the field, and 0 is never set.
       equal(audio.maxFramerate, null, "maxFramerate is meaningless for audio and is not set");
       await lab.pcClose();

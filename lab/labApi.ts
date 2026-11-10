@@ -41,7 +41,6 @@ export interface EncodingPolicySnapshot {
   contentHint: string;
   degradationPreference: string;
   maxFramerate: number;
-  maxBitrate: number;
 }
 
 /** The transceiver shape, m-line count and connection state, in one round trip. */

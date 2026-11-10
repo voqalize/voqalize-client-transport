@@ -48,7 +48,7 @@ import type { SmallWebRTCTransportConstructorOptions } from "@pipecat-ai/small-w
 
 import { keepCallAcrossPageLoads, sessionCallStore } from "./keepCall";
 import { VoqalizeMediaManager } from "./mediaManager";
-import { reconnectOnNetworkChange } from "./reconnect";
+import { browserNetworkWatch, reconnectOnNetworkChange } from "./reconnect";
 import type { LocalTrackChangedEvent } from "./mediaManager";
 import type { MediaManagerSurface } from "./pipecatTypes";
 import type { TrackLike } from "./mediaPlatform";
@@ -91,6 +91,14 @@ export interface VoqalizeTransportOptions extends Omit<
    * Default false.
    */
   keepAcrossPageLoads?: boolean;
+  /**
+   * While the browser says it is offline, hold every rebuild of the peer
+   * connection — ICE failing, a dead path, a retry after a failed offer — and
+   * make one when the page comes back online, instead of spending the
+   * transport's few attempts on a network that is not there and ending the
+   * call. Default true; false leaves those paths as pipecat has them.
+   */
+  holdRebuildsWhileOffline?: boolean;
 }
 
 /**
@@ -120,7 +128,12 @@ export function createVoqalizeTransport(
    */
   readonly hasLiveCall: boolean;
 } {
-  const { mediaManager, keepAcrossPageLoads = false, ...transportOptions } = options;
+  const {
+    mediaManager,
+    keepAcrossPageLoads = false,
+    holdRebuildsWhileOffline = true,
+    ...transportOptions
+  } = options;
   const manager = mediaManager ?? new VoqalizeMediaManager();
 
   const transport = new SmallWebRTCTransport({
@@ -134,7 +147,7 @@ export function createVoqalizeTransport(
     >,
   });
 
-  attachTrackChangedHandler(transport, manager);
+  attachTrackChangedHandler(transport, manager, { holdRebuildsWhileOffline });
   const hasLiveCall = keepAcrossPageLoads
     ? keepCallAcrossPageLoads(transport, sessionCallStore())
     : () => false;
@@ -157,12 +170,17 @@ export function createVoqalizeTransport(
 export function attachTrackChangedHandler(
   transport: SmallWebRTCTransport,
   manager: VoqalizeMediaManager,
+  {
+    holdRebuildsWhileOffline = true,
+  }: Pick<VoqalizeTransportOptions, "holdRebuildsWhileOffline"> = {},
 ): void {
   const internals = transport as unknown as TransportInternals;
 
-  // The agent's audio back after a network change, and sooner. See
-  // `reconnect.ts`.
-  reconnectOnNetworkChange(transport);
+  // The agent's audio back after a network change, and sooner, and never
+  // spent on an offline browser. See `reconnect.ts`.
+  reconnectOnNetworkChange(transport, browserNetworkWatch(), {
+    holdWhileOffline: holdRebuildsWhileOffline,
+  });
 
   // The playout guard's view of the agent's audio: packets in against samples
   // played, read off whichever peer connection is current. See

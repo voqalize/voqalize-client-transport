@@ -21,9 +21,11 @@
  *   finds it.
  * - **Reuse** it when `connect()` is called with no request of its own. A
  *   request the app passes always wins, and replaces what was saved.
- * - **Forget** it when the call ends: the app's `disconnectBot()`, or a server
- *   that refuses the offer (any 4xx, on connect or on a reconnect; pipecat does
- *   not tell a 410 apart from the rest, and none of them can be retried).
+ * - **Forget** it when the call ends: the app's `disconnectBot()`, the server's
+ *   `peerLeft` (it sends one only when the call is over, never for a rebuilt
+ *   connection), or a server that refuses the offer (any 4xx, on connect or on
+ *   a reconnect; pipecat does not tell a 410 apart from the rest, and none of
+ *   them can be retried).
  *
  * It never starts a call by itself, and it never hangs up on `pagehide`: the
  * page going away is exactly what it is for. `hasLiveCall` is the app's cue to
@@ -34,10 +36,11 @@
  * leaves the origin that made it. Every access is guarded: a private window or
  * blocked storage means no rejoin, never an error.
  *
- * It reaches three members of `SmallWebRTCTransport` that its `.d.ts` does not
+ * It reaches members of `SmallWebRTCTransport` that its `.d.ts` does not
  * declare: `_connect` (the base class's `connect()` validates the params and
- * hands them here), `stop` (where a refused reconnect ends up) and
- * `sendMessage` (which carries `disconnect-bot`). If a pipecat release renames
+ * hands them here), `stop` (where a refused reconnect ends up), `sendMessage`
+ * (which carries `disconnect-bot`) and `handleSignallingMessage` (which
+ * receives `peerLeft`). If a pipecat release renames
  * `_connect`, the feature switches itself off and says so; the call itself is
  * unaffected.
  */
@@ -46,6 +49,7 @@ import { logger } from "@pipecat-ai/client-js";
 
 const STORAGE_KEY = "voqalize-client-transport:call";
 const DISCONNECT_BOT = "disconnect-bot";
+const PEER_LEFT = "peerLeft";
 
 /** Where the saved request lives. `sessionStorage` in a page; a fake in a test. */
 export interface CallStore {
@@ -59,6 +63,7 @@ interface Hookable {
   _connect?: (params?: unknown) => Promise<void>;
   stop?: (error?: unknown) => Promise<void>;
   sendMessage?: (message: unknown) => void;
+  handleSignallingMessage?: (message: unknown) => Promise<void> | void;
   _webrtcRequest?: unknown;
 }
 
@@ -152,6 +157,17 @@ export function keepCallAcrossPageLoads(transport: object, store: CallStore): ()
       if (isObject(message) && message.type === DISCONNECT_BOT) store.clear();
       return sendMessage.call(this, message);
     };
+  }
+
+  const onSignal = hooks.handleSignallingMessage;
+  if (typeof onSignal === "function") {
+    hooks.handleSignallingMessage = function (this: Hookable, message: unknown) {
+      if (isObject(message) && isObject(message.message) && message.message.type === PEER_LEFT)
+        store.clear();
+      return onSignal.call(this, message);
+    };
+  } else {
+    logger.debug("[voqalize] no handleSignallingMessage; a call the server ends stays saved");
   }
 
   return hasLiveCall;

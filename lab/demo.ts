@@ -297,7 +297,7 @@ async function start(): Promise<void> {
     for (const lane of LANE_ORDER) {
       const applied = await call.applyEncoding(lane, ENCODING_POLICY[lane]);
       log(
-        `setParameters(${lane}): maxBitrate=${applied.maxBitrate} maxFramerate=${applied.maxFramerate} ` +
+        `setParameters(${lane}): maxFramerate=${applied.maxFramerate} ` +
           `degradationPreference=${applied.degradationPreference}${applied.error ? ` ERROR ${applied.error}` : ""}`,
         applied.error ? "err" : "",
       );

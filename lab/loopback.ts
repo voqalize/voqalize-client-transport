@@ -102,7 +102,6 @@ export interface AppliedParameters {
   /** Read back through `getParameters()`. `null` means the engine dropped the field. */
   degradationPreference: string | null;
   maxFramerate: number | null;
-  maxBitrate: number | null;
 }
 
 export interface LoopbackTrackEvent {
@@ -279,7 +278,6 @@ export class LoopbackCall {
       encodingCount: 0,
       degradationPreference: null,
       maxFramerate: null,
-      maxBitrate: null,
     };
     if (!sender) return result;
 
@@ -291,7 +289,6 @@ export class LoopbackCall {
       parameters.encodings = [{}];
     }
     const encoding = parameters.encodings[0]!;
-    encoding.maxBitrate = policy.maxBitrate;
     // `maxFramerate` is meaningless for audio, and ENCODING_POLICY records it
     // as 0 there rather than omitting it so every entry has one shape.
     if (policy.maxFramerate > 0) encoding.maxFramerate = policy.maxFramerate;
@@ -309,7 +306,6 @@ export class LoopbackCall {
     const applied = sender.getParameters();
     result.encodingCount = applied.encodings?.length ?? 0;
     const first = applied.encodings?.[0];
-    result.maxBitrate = first?.maxBitrate ?? null;
     result.maxFramerate = first?.maxFramerate ?? null;
     result.degradationPreference = applied.degradationPreference ?? null;
     return result;

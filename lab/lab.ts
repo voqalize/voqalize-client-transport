@@ -275,7 +275,6 @@ export class Lab implements LabApi {
         contentHint: policy.contentHint,
         degradationPreference: policy.degradationPreference,
         maxFramerate: policy.maxFramerate,
-        maxBitrate: policy.maxBitrate,
       };
     }
     return out;

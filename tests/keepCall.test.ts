@@ -40,6 +40,10 @@ class StandIn {
   sendMessage(message: unknown): void {
     this.sent.push(message);
   }
+  signals: unknown[] = [];
+  async handleSignallingMessage(message: unknown): Promise<void> {
+    this.signals.push(message);
+  }
 }
 
 const request = () => ({
@@ -110,6 +114,20 @@ describe("keepCallAcrossPageLoads", () => {
     transport.sendMessage({ type: "disconnect-bot", data: {} });
     expect(hasLiveCall()).toBe(false);
     expect(transport.sent).toHaveLength(2);
+  });
+
+  it("forgets the call when the server sends peerLeft, and passes it on", async () => {
+    const store = memoryStore();
+    const { transport, hasLiveCall } = page(store);
+    await transport._connect(request());
+    await transport.handleSignallingMessage({
+      type: "signalling",
+      message: { type: "renegotiate" },
+    });
+    expect(hasLiveCall()).toBe(true);
+    await transport.handleSignallingMessage({ type: "signalling", message: { type: "peerLeft" } });
+    expect(hasLiveCall()).toBe(false);
+    expect(transport.signals).toHaveLength(2);
   });
 
   it("forgets the call when the server refuses an offer, not on other failures", async () => {

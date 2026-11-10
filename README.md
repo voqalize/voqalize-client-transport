@@ -146,9 +146,10 @@ The package exports `createVoqalizeTransport`, `VoqalizeMediaManager`,
 - **Fixes the SDP shape.** Three `sendonly` transceivers — mic, camera, screen
   — created before the first offer. Starting a screen share mid-call adds no
   m-line and triggers no renegotiation.
-- **Tunes each lane for what it carries.** Speech at 32 kbps on the mic;
-  `maintain-framerate` on the camera; `maintain-resolution` at 1080p and 5 fps
-  on the screen, because a shared screen is read, not watched.
+- **Tunes each lane for what it carries.** A `contentHint` per lane (speech,
+  motion, detail), and the capture asks for 30 fps on the camera and 1080p at
+  5 fps on the screen, because a shared screen is read, not watched. Bitrate is
+  the voice runtime's to set, per call, on what it receives.
 - **Serializes every mutation.** One queue. pipecat's interface declares
   `enableMic`/`updateCam` as returning `void`, so the transport never awaits a
   device switch and a user double-clicking a toggle would otherwise interleave

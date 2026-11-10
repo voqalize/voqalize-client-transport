@@ -227,6 +227,74 @@ describe("a network move", () => {
   });
 });
 
+describe("an offline browser", () => {
+  it("holds ICE failed, without spending an attempt, and rebuilds once online", () => {
+    const t = new StandIn();
+    const network = fakeNetwork();
+    reconnectOnNetworkChange(t, network);
+    network.isOffline = true;
+    t.ice("failed");
+    expect(t.rebuilds).toEqual([]);
+    network.isOffline = false;
+    network.move();
+    expect(t.rebuilds).toEqual([true]);
+    network.move();
+    expect(t.rebuilds).toEqual([true, true]);
+  });
+
+  // The stock transport retries a failed offer two seconds later, on a
+  // connection that may never have got past "new".
+  it("holds the stock retry and makes it once online, whatever ICE says", () => {
+    const t = new StandIn();
+    const network = fakeNetwork();
+    reconnectOnNetworkChange(t, network);
+    network.isOffline = true;
+    void t.attemptReconnection(true);
+    void t.attemptReconnection(true);
+    t.pc!.iceConnectionState = "new";
+    expect(t.rebuilds).toEqual([]);
+    network.isOffline = false;
+    network.move();
+    expect(t.rebuilds).toEqual([true]);
+    network.move();
+    expect(t.rebuilds).toEqual([true]);
+  });
+
+  it("owes nothing to a transport that has stopped", () => {
+    const t = new StandIn();
+    const network = fakeNetwork();
+    reconnectOnNetworkChange(t, network);
+    network.isOffline = true;
+    t.ice("failed");
+    t.pc = null;
+    network.isOffline = false;
+    network.move();
+    expect(t.rebuilds).toEqual([]);
+  });
+
+  it("is the stock behaviour with holdWhileOffline off", () => {
+    const t = new StandIn();
+    const network = fakeNetwork();
+    reconnectOnNetworkChange(t, network, { holdWhileOffline: false });
+    network.isOffline = true;
+    t.ice("failed");
+    void t.attemptReconnection(true);
+    expect(t.rebuilds).toEqual([true, true]);
+  });
+
+  it("holds through client.transport too", () => {
+    const t = new StandIn();
+    const network = fakeNetwork();
+    reconnectOnNetworkChange(new TransportWrapper(t as never).proxy as unknown as object, network);
+    network.isOffline = true;
+    expect(() => t.ice("failed")).not.toThrow();
+    expect(t.rebuilds).toEqual([]);
+    network.isOffline = false;
+    network.move();
+    expect(t.rebuilds).toEqual([true]);
+  });
+});
+
 // What an app holds as `client.transport`: pipecat's proxy, whose methods are
 // forwarders that look the method up again on every call.
 describe("installed through client.transport", () => {

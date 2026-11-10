@@ -102,10 +102,13 @@ option.
 
 8. **The screen share is tuned for legibility, not motion.** 1080p at a low
    frame rate: `contentHint = "detail"`, `degradationPreference =
-"maintain-resolution"`, `maxFramerate` 5, `maxBitrate` 1.5 Mbps. The camera
-   carries the opposite bias (`"motion"`, `maintain-framerate`, 30 fps,
-   600 kbps), and the mic 32 kbps of speech. All of it lives in one
+"maintain-resolution"`, `maxFramerate` 5. The camera carries the opposite
+   bias (`"motion"`, `maintain-framerate`, 30 fps). All of it lives in one
    `ENCODING_POLICY` table in [`src/mediaManager.ts`](../src/mediaManager.ts).
+   There are no bitrates: the voice runtime caps what it receives, per call
+   (owner, 2026-11-10). What ships applies the hints and the capture frame
+   rates; the sender settings are applied only by the lab, since phase 2b was
+   never built.
 
 9. **Screen video only — no screen audio.** pipecat's `MediaManager` defines a
    `screenVideo` member and no `screenAudio`. A fourth transceiver would push
