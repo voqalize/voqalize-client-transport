@@ -53,6 +53,7 @@
  */
 
 import { logger } from "@pipecat-ai/client-js";
+import { firstInstall } from "./once";
 
 /**
  * How long ICE `disconnected` may last before the connection is rebuilt.
@@ -77,14 +78,11 @@ export interface NetworkWatch {
   subscribe(onMoved: () => void): () => void;
 }
 
-const installed = new WeakSet<object>();
-
 export function reconnectOnNetworkChange(
   transport: object,
   network: NetworkWatch | null = browserNetworkWatch(),
 ): void {
-  if (installed.has(transport)) return;
-  installed.add(transport);
+  if (!firstInstall(transport, "reconnect")) return;
   const t = transport as Reconnectable;
   keepNewerIncomingTracks(t);
   reconnectSooner(t, network);

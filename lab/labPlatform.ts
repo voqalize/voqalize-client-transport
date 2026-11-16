@@ -27,8 +27,13 @@ import type {
   MediaDevicesLike,
   OutputElementLike,
   ScriptKind,
+  StreamLike,
+  TrackLike,
   VisibilitySource,
 } from "../src/mediaPlatform";
+import type { AudioContextFactory } from "../src/localAudioLevel";
+import type { PermissionsLike } from "../src/mediaManager";
+import { FakeHealthWorld, type PermissionName, type PermissionValue } from "./fakeHealth";
 
 /** What an engine can actually do. Measured, never assumed — cases branch on this and record it. */
 export interface LabCapabilities {
@@ -76,6 +81,15 @@ export interface LabCapabilities {
    * re-derive that as a browser limitation.
    */
   loopbackPeerConnection: boolean;
+  /** Levels, pictures and permissions can be scripted (`setInputLevel` and friends). Tier 1 only. */
+  scriptedHealth: boolean;
+}
+
+/** The manager options a platform supplies for CallHealth. */
+export interface HealthSeams {
+  permissions?: PermissionsLike | null;
+  createAudioContext?: AudioContextFactory | null;
+  makeStream?: (tracks: TrackLike[]) => StreamLike;
 }
 
 export interface MutableVisibility extends VisibilitySource {
@@ -96,6 +110,13 @@ export interface LabPlatform {
   failNextGetDisplayMedia(name: string, message: string): void;
   /** Returns false where the platform cannot do it (every real browser). */
   vanishDeviceDuringNextAcquire(deviceId: string): boolean;
+
+  /** The health seams for a manager; `scripted` asks for the scriptable world. */
+  healthSeams(scripted: boolean): HealthSeams;
+  /** Each returns false where the platform cannot script it (every real browser). */
+  setInputLevel(deviceId: string, level: number): boolean;
+  addDevice(deviceId: string, kind: MediaDeviceKind, label: string): boolean;
+  setPermission(name: PermissionName, state: PermissionValue): boolean;
 
   /**
    * Drive the lifecycle of the newest live capture track of this kind. Returns
@@ -233,6 +254,7 @@ class FakeOutputElement implements OutputElementLike {
 export class FakeLabPlatform implements LabPlatform {
   readonly devices = new FakeMediaDevices();
   readonly visibility = new ScriptedVisibility();
+  readonly health = new FakeHealthWorld();
   private readonly elements: FakeOutputElement[] = [];
   private autoplayBlocked = false;
 
@@ -258,7 +280,36 @@ export class FakeLabPlatform implements LabPlatform {
       // Node has no `RTCPeerConnection` and the fake platform does not pretend
       // to: the loopback is the one thing tier 1 genuinely cannot model.
       loopbackPeerConnection: false,
+      scriptedHealth: true,
     };
+  }
+
+  healthSeams(scripted: boolean): HealthSeams {
+    if (!scripted) return { permissions: null, createAudioContext: null };
+    return {
+      permissions: this.health.permissions,
+      createAudioContext: this.health.createAudioContext,
+      makeStream: (tracks) => ({
+        getTracks: () => tracks,
+        getAudioTracks: () => tracks.filter((t) => t.kind === "audio"),
+        getVideoTracks: () => tracks.filter((t) => t.kind === "video"),
+      }),
+    };
+  }
+
+  setInputLevel(deviceId: string, level: number): boolean {
+    this.health.setInputLevel(deviceId, level);
+    return true;
+  }
+
+  addDevice(deviceId: string, kind: MediaDeviceKind, label: string): boolean {
+    this.devices.addDevice({ deviceId, kind, label, groupId: `grp-${deviceId}` });
+    return true;
+  }
+
+  setPermission(name: PermissionName, state: PermissionValue): boolean {
+    this.health.setPermission(name, state);
+    return true;
   }
 
   hideDevice(deviceId: string): void {

@@ -13,6 +13,9 @@
  *   yourself when the app needs it before the transport exists, and hand it
  *   to `createVoqalizeTransport({ mediaManager })`.
  *
+ *   `onCallHealthChanged()` on the manager, and the `CallHealth` types — what
+ *   is wrong with the call's devices and connection, and what would fix it.
+ *
  *   `attachTrackChangedHandler()` — for a codebase that builds its transport
  *   somewhere you cannot reach (pipecat's `PipecatAppBase`, say). Without it,
  *   mid-call device switches do not reach the peer connection (see
@@ -30,6 +33,15 @@
 export { createVoqalizeTransport, attachTrackChangedHandler } from "./transport";
 export type { VoqalizeTransportOptions } from "./transport";
 export { VoqalizeMediaManager } from "./mediaManager";
+export type {
+  CallHealth,
+  CallHealthListener,
+  CaptureHealth,
+  ConnectionHealth,
+  ScreenHealth,
+  ScreenPickerHints,
+  SpeakerHealth,
+} from "./callHealth";
 export { SmallWebRTCTransport } from "@pipecat-ai/small-webrtc-transport";
 export type {
   IceConfig,

@@ -30,6 +30,7 @@ import {
 } from "./fakeMediaDevices";
 import {
   ScriptedVisibility,
+  type HealthSeams,
   type LabCapabilities,
   type LabPlatform,
   type MutableVisibility,
@@ -433,6 +434,7 @@ export class RealLabPlatform implements LabPlatform {
       // Measured, not assumed — and measured *here* so it is memoized with the
       // rest rather than re-negotiated once per case.
       loopbackPeerConnection: await probeLoopbackSupport(),
+      scriptedHealth: false,
     };
     return measuredCapabilities;
   }
@@ -453,6 +455,23 @@ export class RealLabPlatform implements LabPlatform {
     this.devices.failNextGetDisplayMedia(name, message);
   }
   vanishDeviceDuringNextAcquire(): boolean {
+    return false;
+  }
+
+  /** The browser's own: a real `AudioContext` and `navigator.permissions`. */
+  healthSeams(): HealthSeams {
+    return {};
+  }
+
+  setInputLevel(): boolean {
+    return false;
+  }
+
+  addDevice(): boolean {
+    return false;
+  }
+
+  setPermission(): boolean {
     return false;
   }
 

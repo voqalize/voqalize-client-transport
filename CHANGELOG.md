@@ -5,10 +5,53 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
-## [0.5.0] — 2026-11-06
+## [0.5.0] — 2026-11-16
+
+`mic.signal.server`, `cam.signal.server` and `connection.uplink` come from
+Voqalize's voice runtime. Until it sends them they stay `unmeasured` and
+`unknown`.
+
+### Added
+
+- **`onCallHealthChanged(listener)`** on `VoqalizeMediaManager`: the state of
+  the microphone, camera, speaker, screen share and connection, why any of them
+  is not working, and what would fix it. See the README. The `CallHealth`
+  types are exported: `CallHealth`, its listener and the type of each part.
+  Where pipecat's `mediaState` has a word for a problem, `CallHealth` uses it.
+  Every list in them is open: handle values you do not know.
+- `enableScreenShare(true, hints)` takes `ScreenPickerHints` for the browser's
+  picker, and resolves `"started"` or `"cancelled"`; its type says so, with no
+  `void` to handle. `enableScreenShare(false)` resolves nothing.
+- A capture error the browser names in a way nobody recognises is `unknown`,
+  pipecat's word, with `ask-again` and `choose-another-device`.
+- A microphone that produces nothing is reopened once. If it is still silent,
+  it is reported as `no-signal`.
+- On first open, a loopback device that is only the system default is passed
+  over for a real microphone.
+- The transport reads the voice runtime's reports, under the RTVI label
+  `voqalize`: whether the caller's audio arrived, whether their camera's picture
+  did, and the uplink grade. A camera the voice runtime sees black is `no-signal`; its fixes
+  are `open-camera-shutter`, or `start-camera-app` for a virtual camera.
+- `connection.reason` is `refused` when the server answers the offer with a
+  4xx: an expired or ended session, a quota, a key it does not accept.
 
 ### Changed
 
+- **A call that cannot reach the server now ends.** Before, `connect()` kept
+  retrying. Now the transport disconnects, and `connect()` rejects. This
+  happens at once when ICE fails before the call was ever up, and after 30 s
+  with no media path; the 30 s does not run out while a permission prompt is
+  open. `connection.reason` is `unreachable`.
+- A screen-share picker the user closes resolves `"cancelled"`. It no longer
+  raises a `DeviceError` or an `onDeviceError`.
+- Screen capture size is now a `max` of 1920×1080 rather than an `ideal`.
+- `new VoqalizeMediaManager()` no longer throws on a page without
+  `getUserMedia`. `mic` reports `failed` with `not-supported` instead.
+- A missing or broken camera no longer takes the microphone down with it.
+  When the combined request fails for any reason but a refusal, each device
+  is opened on its own: the microphone opens, and `cam` reports why the
+  camera did not. A refusal is not retried, because a second prompt would
+  get the same answer.
 - **daily-js is gone from apps that use this package.** pipecat's
   `SmallWebRTCTransport` imports `@daily-co/daily-js` at the top of its module
   for its default media manager. This package never builds that manager, but
@@ -25,6 +68,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - `events` and `lodash`, which pipecat's transport imports, are now
   dependencies of this package.
 - The bundled transport's licence ships in `THIRD_PARTY_NOTICES.md`.
+
+### Migrating
+
+- **`network-quality` no longer reaches `onServerMessage`.** The voice runtime now sends it
+  under the `voqalize` label, which pipecat does not pass to the app. Read
+  `connection.uplink` from `onCallHealthChanged` instead.
+- One page per call. A second tab on the same session is not supported yet.
 
 ## [0.4.1] — 2026-11-01
 

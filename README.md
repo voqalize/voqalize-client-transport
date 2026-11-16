@@ -73,6 +73,142 @@ to handle:
   the same track and plays it again. An element you paused is left alone.
   [The measurement](docs/FINDINGS.md#android-chrome-stops-playing-a-taken-over-call).
 
+### Know what is wrong with the call
+
+`onCallHealthChanged` tells the page what is wrong with the microphone, camera,
+speaker, screen share and connection, and what the user can do about it. It
+calls the listener at once with the current state, and again whenever a part
+changes. Every snapshot is frozen.
+
+```ts
+const stop = mediaManager.onCallHealthChanged(({ mic, connection }) => {
+  if (mic.state === "failed") showMicHelp(mic.problem, mic.fixes);
+  if (connection.state === "disconnected" && connection.reason === "unreachable") {
+    showNetworkHelp();
+  }
+});
+```
+
+It starts before `connect()`, so a page can catch a blocked or silent
+microphone on its join screen rather than after the agent's greeting. Before
+then, `connection` is `{ state: "disconnected" }` with no `reason`: no call
+has been tried yet.
+
+Every list here is open. A later version may add a state, a problem code, a
+fix or a trait, so give each `switch` a default that shows something generic
+rather than nothing.
+
+pipecat's client already has `client.mediaState`, which says whether each
+device was granted. Use it if that is all your page needs. `onCallHealthChanged`
+adds only what `mediaState` cannot say: a microphone that is open and silent,
+a black camera, a device another app takes mid-call, recovery, what the user
+can do about it, and the speaker, screen share and connection. Where the two
+name the same problem they use the same word (`blocked`, `already-in-use`,
+`not-found`, `not-supported`, `unknown`).
+
+The package exports `CallHealth`, `CallHealthListener` and the type of each
+part (`CaptureHealth`, `SpeakerHealth`, `ScreenHealth`, `ConnectionHealth`).
+Name anything inside them through those: `CallHealth["connection"]["uplink"]`,
+or `Extract<CaptureHealth, { state: "failed" }>["problem"]`.
+
+**`mic` and `cam`**
+
+| State        | What it means                                                                                                                  | What a page might say                          |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------- |
+| `off`        | Not wanted, or not opened yet.                                                                                                 | Nothing.                                       |
+| `asking`     | The browser is showing its permission prompt.                                                                                  | "Allow the microphone to talk to the agent."   |
+| `starting`   | Open, and listening for the first sound or picture.                                                                            | Nothing, or a spinner.                         |
+| `live`       | Working. `signal` says how it was measured.                                                                                    | Nothing.                                       |
+| `muted`      | Open, and the user turned it off in the page.                                                                                  | Your own mute indicator.                       |
+| `degraded`   | Was working and has gone silent or still. `problem` and `fixes` say why.                                                       | "We can't hear you. Is your microphone muted?" |
+| `recovering` | Being reopened: `cause` is `device-lost` (unplugged), `interrupted` (the system took it), `permission-granted` or `no-signal`. | "Reconnecting your microphone…"                |
+| `failed`     | It will not work until the user does something. `problem` and `fixes` say what.                                                | See the tables below.                          |
+
+`live.signal.local` is measured in the page once its audio context runs, which
+a browser may hold until the page's first gesture: until then it is
+`unmeasured`. `live.signal.server` is what the voice runtime decoded; `none`
+means no packets reached it. A microphone that gives nothing is reopened once
+before it is `failed` with `no-signal`. A quiet room is not silence, a single
+click is not a voice, and a muted microphone is never judged silent. Nor is a
+`virtual` one: a noise-gated microphone (Krisp, NVIDIA Broadcast) gives exact
+zeros whenever nobody speaks. Where the
+page can measure, its own reading decides; the voice runtime's `silent` stands
+in only where it cannot. The camera is judged by the voice runtime alone: its
+`signal.local` is always `unmeasured`, and `signal.server` is `silent` for a
+black picture and `none` for no frames. No frames is `degraded`, with only
+`choose-another-device` to offer, while the voice runtime still receives the
+microphone and the uplink grades better than `poor`; otherwise the connection
+explains it, and the camera stays `live`. A closed shutter is reported a little
+over 2 s after the camera switches on, and only once the call is up: there is
+no camera verdict before it, so a pre-join screen that wants one keeps its own
+preview check. When `live` follows `recovering`, `live.recovered`
+says which device it came from and why.
+
+| `problem.code`     | What it means                                                                                                                                 | What a page might say                                |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `blocked`          | Permission refused. `by` says who: `user`, `page` (its embedding forbids capture), `policy` (an admin), `os`, `in-app-browser`, or `unknown`. | "Microphone access is blocked." Then the fixes.      |
+| `prompt-dismissed` | The user closed the prompt without answering.                                                                                                 | "Allow the microphone to continue."                  |
+| `already-in-use`   | The system would not open the device; usually another app holds it.                                                                           | "Another app is using your microphone."              |
+| `not-found`        | There is no such device.                                                                                                                      | "No microphone found."                               |
+| `no-signal`        | Open, but nothing comes out: a hardware mute, a volume at zero, a closed camera shutter, or an OS privacy switch.                             | "We can't hear you."                                 |
+| `interrupted`      | Comes back muted again and again with the page in front: something else holds the device. Clears by itself once it lets go.                   | "Your microphone was taken by another app or call."  |
+| `not-supported`    | This browser cannot capture at all.                                                                                                           | "Open this page in Chrome, Safari, Edge or Firefox." |
+| `unknown`          | The browser gave an error nobody recognises.                                                                                                  | "Something stopped your microphone."                 |
+
+| Fix                     | What the user does                                                            |
+| ----------------------- | ----------------------------------------------------------------------------- |
+| `ask-again`             | Tries again; the page calls `enableMic(true)` / `enableCam(true)` from a tap. |
+| `allow-in-browser`      | Allows the site in the browser's address-bar or site settings.                |
+| `allow-in-os-settings`  | Allows the browser in the operating system's privacy settings.                |
+| `open-in-browser`       | Leaves the in-app browser for a real one.                                     |
+| `contact-admin`         | Asks whoever manages the device.                                              |
+| `fix-page-embedding`    | For the site's developer: the iframe needs `allow="microphone; camera"`.      |
+| `unmute-hardware`       | Flips the mute switch on the headset or keyboard.                             |
+| `raise-input-volume`    | Turns the input volume up.                                                    |
+| `close-other-apps`      | Quits the app that holds the device.                                          |
+| `open-camera-shutter`   | Slides the privacy shutter open.                                              |
+| `start-camera-app`      | Starts the app behind a virtual camera (NVIDIA Broadcast, OBS, a phone link). |
+| `connect-a-device`      | Plugs one in.                                                                 |
+| `choose-another-device` | Picks another from the device list.                                           |
+
+`fixes` is ordered most likely first. Devices carry `traits`: `loopback`,
+`virtual`, `bluetooth-handsfree` and `display-audio`. A loopback device that
+is only the system default is passed over for a real microphone; one the user
+picked is kept.
+
+**`speaker`** is `idle`, `playing`, `blocked` (the browser holds audio back
+until a gesture: show a "tap to hear" button that calls `resumePlayback()`) or
+`recovering` with `cause: "stalled"`. `playing` carries `signal: "unmeasured"`
+today: the page does not yet measure what reaches the speaker, so it never
+claims `sound`.
+
+**`screen`** is `not-supported`, `off`, `asking`, `live` or `failed`. It ends
+`off` with `ended: "user"` when the browser's own Stop button ended it, and
+`"app"` when the page did. Closing the picker is not a failure:
+`enableScreenShare` resolves `"cancelled"`.
+
+**`connection`** is `connecting`, `connected`, `reconnecting` or
+`disconnected`. Its `reason` is `ended` when the call was hung up, and
+`unreachable` when no media path formed: at once when ICE fails before the
+call was ever up, or after 30 s of `connecting` or `reconnecting`. It is
+`refused` when the server turned the call down with a 4xx: an expired or ended
+session, a quota, a key it does not accept. Retrying will not help there, and
+a page usually needs a new session. The 30 s
+does not run out while the browser's permission prompt is open. When the call
+is given up as unreachable while `connect()` is still pending, `connect()`
+rejects as a disconnect does; read `connection.reason` for why. `connected`
+grades the `uplink` (as the voice runtime sees it) and the `downlink` (as this
+page sees it) as `good`, `fair`, `poor`, `bad` or `unknown`.
+
+The voice runtime's readings arrive on their own RTVI label, `voqalize`
+(`caller-audio`, `caller-video` and `network-quality`). The transport reads them and does not
+pass them to your app. Use one page per call: a second tab on the same
+session is not supported yet.
+
+`enableScreenShare(true, hints)` passes `hints` such as `displaySurface` to the
+browser's picker, and resolves `"cancelled"` when the user closes the picker.
+That is not an error.
+
 ### Keep the call across page loads
 
 A full page load — a reload, or a link to another page of the same site —

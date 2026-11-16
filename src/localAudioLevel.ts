@@ -103,6 +103,11 @@ export interface LocalAudioLevelMeterOptions {
   onLevel: (level: number) => void;
   /** Told when the meter starts or stops waiting for a gesture to resume its context. */
   onNeedsGesture?: (needed: boolean) => void;
+  /**
+   * The raw peak of each tick, before the display hold. `precise` is false on
+   * a byte-depth analyser, which cannot tell digital silence from a quiet room.
+   */
+  onPeak?: (peak: number, precise: boolean) => void;
   intervalMs?: number | undefined;
 }
 
@@ -117,6 +122,7 @@ export class LocalAudioLevelMeter {
   private readonly makeStream: ((tracks: TrackLike[]) => StreamLike) | undefined;
   private readonly onLevel: (level: number) => void;
   private readonly onNeedsGesture: ((needed: boolean) => void) | undefined;
+  private readonly onPeak: ((peak: number, precise: boolean) => void) | undefined;
   private readonly intervalMs: number;
 
   /** The capture track being measured — not the branch, which is ours. */
@@ -139,12 +145,18 @@ export class LocalAudioLevelMeter {
     this.makeStream = options.makeStream;
     this.onLevel = options.onLevel;
     this.onNeedsGesture = options.onNeedsGesture;
+    this.onPeak = options.onPeak;
     this.intervalMs = options.intervalMs ?? LOCAL_AUDIO_LEVEL_INTERVAL_MS;
   }
 
   /** True while the context exists but the autoplay policy is holding it. */
   get waitingForGesture(): boolean {
     return this.needsGesture;
+  }
+
+  /** True while a track is attached and its context is running: levels are real readings. */
+  get measuring(): boolean {
+    return !!this.source && !!this.analyser && this.context?.state === "running";
   }
 
   /** Measure `track`, or stop measuring altogether with `null`. */
@@ -270,6 +282,7 @@ export class LocalAudioLevelMeter {
     const analyser = this.analyser;
     if (!analyser || this.context?.state !== "running") return;
     let peak = 0;
+    const precise = !!(this.floatBuffer && analyser.getFloatTimeDomainData);
     if (this.floatBuffer && analyser.getFloatTimeDomainData) {
       analyser.getFloatTimeDomainData(this.floatBuffer);
       for (const sample of this.floatBuffer) {
@@ -286,6 +299,7 @@ export class LocalAudioLevelMeter {
     const level = Math.min(1, Math.max(peak, this.held));
     this.held = level / PEAK_DECAY;
     this.onLevel(level);
+    this.onPeak?.(peak, precise);
   }
 
   private detachBranch(): void {

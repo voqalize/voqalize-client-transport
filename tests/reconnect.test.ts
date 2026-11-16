@@ -252,6 +252,20 @@ describe("installed through client.transport", () => {
     }
   });
 
+  it("installs once when the page also installed it on the transport itself", () => {
+    vi.useFakeTimers();
+    try {
+      const t = new StandIn();
+      reconnectOnNetworkChange(t, null);
+      reconnectOnNetworkChange(wrapped(t), null);
+      t.ice("disconnected");
+      vi.advanceTimersByTime(DISCONNECTED_GRACE_MS);
+      expect(t.rebuilds).toEqual([true]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("starts a rebuilt connection's audio", () => {
     const t = new StandIn();
     reconnectOnNetworkChange(wrapped(t), null);

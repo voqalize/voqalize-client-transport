@@ -49,6 +49,7 @@ import type { SmallWebRTCTransportConstructorOptions } from "@pipecat-ai/small-w
 import { keepCallAcrossPageLoads, sessionCallStore } from "./keepCall";
 import { VoqalizeMediaManager } from "./mediaManager";
 import { reconnectOnNetworkChange } from "./reconnect";
+import { trackConnectionHealth } from "./connectionHealth";
 import type { LocalTrackChangedEvent } from "./mediaManager";
 import type { MediaManagerSurface } from "./pipecatTypes";
 
@@ -162,6 +163,10 @@ export function attachTrackChangedHandler(
   // The agent's audio back after a network change, and sooner. See
   // `reconnect.ts`.
   reconnectOnNetworkChange(transport);
+
+  // CallHealth.connection, and the voice runtime's word on the call. See
+  // `connectionHealth.ts`.
+  trackConnectionHealth(transport, manager);
 
   // The playout guard's view of the agent's audio: packets in against samples
   // played, read off whichever peer connection is current. See

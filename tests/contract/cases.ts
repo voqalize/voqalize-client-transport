@@ -21,6 +21,7 @@
  */
 
 import type { LabApi, LabResetOptions } from "../../lab/labApi";
+import { HEALTH_CASES } from "./healthCases";
 import type { LabCapabilities } from "../../lab/labPlatform";
 import {
   deepEqual,
@@ -760,10 +761,16 @@ export const CONTRACT_CASES: ContractCase[] = [
       const before = (await lab.captureTracks()).audio;
       await lab.resetCounters();
       ok(await lab.simulateMute("audio"), "the platform could mute the capture track");
-      await waitFor(async () => (await gumCount(lab)) === 1, {
-        message: "a persistently muted track was never re-acquired",
-      });
-      notEqual((await lab.captureTracks()).audio?.id, before?.id);
+      // Wait for the swap, not the getUserMedia call: the call is counted
+      // before the new track is installed.
+      await waitFor(
+        async () => {
+          const now = (await lab.captureTracks()).audio;
+          return !!now && now.id !== before?.id;
+        },
+        { message: "a persistently muted track was never re-acquired" },
+      );
+      ok((await gumCount(lab)) >= 1);
     },
   },
 
@@ -1360,12 +1367,14 @@ export const CONTRACT_CASES: ContractCase[] = [
   },
 
   {
-    name: "a dismissed screen-share prompt maps to a typed DeviceError",
+    // A closed picker is a choice, not an error: see the "cancelled" health
+    // case. What still rejects is a refusal the person did not make here.
+    name: "a screen share the system refuses maps to a typed DeviceError",
     requires: ["screenShare"],
     async run({ lab }) {
       await lab.initialize();
       await lab.clearEvents();
-      await lab.failNextGetDisplayMedia("NotAllowedError", "Permission denied");
+      await lab.failNextGetDisplayMedia("NotAllowedError", "Permission denied by system");
       const error = await rejects(() => lab.enableScreenShare(true));
       equal(error.name, "NotAllowedError");
       equal(error.type, "permissions", "the same typed mapping a denied camera gets");
@@ -1981,4 +1990,5 @@ export const CONTRACT_CASES: ContractCase[] = [
       await lab.pcClose();
     },
   },
+  ...HEALTH_CASES,
 ];

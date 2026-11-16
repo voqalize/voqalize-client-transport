@@ -67,6 +67,32 @@ import {
   type AudioContextFactory,
 } from "./localAudioLevel";
 import {
+  browserFramePolicy,
+  CallHealthStore,
+  classifyCaptureError,
+  describeDevice,
+  fixesFor,
+  INITIAL_CONNECTION,
+  isInAppBrowser,
+  rawError,
+  traitsOf,
+  type CallHealth,
+  type CallHealthListener,
+  type FramePolicy,
+  type CaptureHealth,
+  type Cause,
+  type ConnectionHealth,
+  type Device,
+  type PermissionReading,
+  type Problem,
+  type Recovery,
+  SYSTEM_DENIAL,
+  type ScreenHealth,
+  type ScreenPickerHints,
+  type Signal,
+  type SpeakerHealth,
+} from "./callHealth";
+import {
   PlayoutGuard,
   type PlayoutGuardOptions,
   type PlayoutRecoveryReason,
@@ -156,14 +182,16 @@ export const CAMERA_CONSTRAINTS: MediaTrackConstraints = {
 };
 
 /**
- * What `getDisplayMedia` is asked for. Every field is an `ideal`, never an
- * `exact`: a display is whatever size it is, and an over-constrained request is
- * an `OverconstrainedError` on a screen the user cannot resize. The ceiling
- * that actually holds is the sender's, in `ENCODING_POLICY`.
+ * What `getDisplayMedia` is asked for. Never an `exact`: a display is whatever
+ * size it is, and an over-constrained request is an `OverconstrainedError` on a
+ * screen the user cannot resize. The size is a `max`, not an `ideal`: an ideal
+ * of 1080p made engines upscale a smaller window to it, encoding pixels that
+ * carry nothing, while a max lets a 4K monitor come down to what the sender's
+ * ceiling (`ENCODING_POLICY`) will send anyway.
  */
 export const SCREEN_CONSTRAINTS: MediaTrackConstraints = {
-  width: { ideal: 1920 },
-  height: { ideal: 1080 },
+  width: { max: 1920 },
+  height: { max: 1080 },
   frameRate: { ideal: ENCODING_POLICY.screenVideo.maxFramerate },
 };
 
@@ -238,7 +266,73 @@ export interface VoqalizeMediaManagerOptions {
   createAudioContext?: AudioContextFactory | null;
   /** How often `onLocalAudioLevel` fires. Default 100 ms, Daily's interval. */
   localAudioLevelIntervalMs?: number;
+  /**
+   * Where permission states are read and watched, for `CallHealth`. Defaults
+   * to `navigator.permissions`; `null` reads every permission as unknown.
+   */
+  permissions?: PermissionsLike | null;
+  /** The user agent, read only to recognise in-app browsers. Defaults to `navigator.userAgent`. */
+  userAgent?: string;
+  /** Whether this frame's Permissions Policy allows a feature. Defaults to the document's, where the engine exposes it. */
+  framePolicy?: FramePolicy | null;
+  /** The signal rules' timings, for tests. The defaults are the product's. */
+  healthTimings?: Partial<HealthTimings>;
 }
+
+/** The subset of `navigator.permissions` CallHealth reads. */
+export interface PermissionsLike {
+  query(descriptor: { name: string }): Promise<PermissionStatusLike>;
+}
+
+export interface PermissionStatusLike {
+  readonly state: string;
+  addEventListener?(type: "change", listener: () => void): void;
+  removeEventListener?(type: "change", listener: () => void): void;
+}
+
+export interface HealthTimings {
+  /** Silence this long from a device that just opened means a dead device. */
+  silentAtJoinMs: number;
+  /** Silence this long mid-call, from a device that was heard, means something changed. */
+  degradedAfterMs: number;
+  /**
+   * Sound must last this long, with no gap over `heardGapMs`, before the mic
+   * counts as heard. A single click or pop from a dying device is not a voice,
+   * and once heard, a silence is only warned about instead of reopened.
+   */
+  heardAfterMs: number;
+  /** The longest quiet gap inside a run of sound that still counts toward `heardAfterMs`. */
+  heardGapMs: number;
+  /** Reopens allowed for one run of interruptions before the device is reported failed. */
+  interruptedReopens: number;
+  /**
+   * An interruption this long after the last one starts a new run, so a long
+   * call's occasional interruptions never add up to a failure.
+   */
+  interruptionRunMs: number;
+  /** How long a stalled playout shows as recovering. */
+  speakerRecoveringMs: number;
+}
+
+/**
+ * The defaults. Silence here is digital silence — a peak at or under
+ * `SILENT_PEAK`, one least-significant bit of 16-bit audio — never a quiet
+ * room, which always carries noise well above it. The floor and the windows
+ * are provisional, set conservatively until field data (calls whose
+ * microphone gave nothing) can tune them; a false "no signal" is worse than a late one.
+ */
+export const HEALTH_TIMINGS: HealthTimings = {
+  silentAtJoinMs: 2500,
+  degradedAfterMs: 6000,
+  heardAfterMs: 300,
+  heardGapMs: 1000,
+  interruptedReopens: 3,
+  interruptionRunMs: 60_000,
+  speakerRecoveringMs: 1500,
+};
+
+/** One least-significant bit of 16-bit audio, as a float sample. */
+export const SILENT_PEAK = 1 / 32768;
 
 interface Slot {
   /** What the transport and the `replaceTrack` hook call this lane. */
@@ -261,6 +355,32 @@ interface Slot {
   mutedTimer: ReturnType<typeof setTimeout> | null;
   intentionalStops: WeakSet<object>;
   detach: (() => void) | null;
+  /** What `CallHealth` says about this slot. */
+  health: CaptureHealth;
+  /** When the current run of silence began, or null while there is signal. */
+  quietSince: number | null;
+  /** The local reading the health was last built from. */
+  local: Signal["local"];
+  /** True once this capture has produced sustained signal; see `heardAfterMs`. */
+  heard: boolean;
+  /** Where the current run of sound began and when it was last seen, toward `heard`. */
+  soundRun: { from: number; last: number } | null;
+  /** True after the one reopen a silent device gets. */
+  silentReopened: boolean;
+  /** Reopens spent on the current run of interruptions. */
+  interruptions: number;
+  /** When the last interruption was reopened, to tell one run from the next. */
+  interruptedAt: number;
+  /** True once the first open's loopback rule has run. */
+  loopbackChecked: boolean;
+  /** The device and cause a recovery started from, to report once it is live. */
+  recovery: Recovery | null;
+  /** The recovery the current live capture came out of, shown on `live`. */
+  recovered: Recovery | null;
+  /** When the current capture opened. */
+  openedAt: number;
+  /** True while a `getUserMedia` for this slot is in flight. */
+  acquiring: boolean;
 }
 
 const GESTURE_EVENTS = ["pointerdown", "keydown"] as const;
@@ -308,7 +428,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
    * operation, not just the prompt, means the second caller performs no
    * install at all and there is exactly one screen track to stop.
    */
-  private screenRequest: Promise<void> | null = null;
+  private screenRequest: Promise<"started" | "cancelled"> | null = null;
 
   private selectedMicInfo: MediaDeviceInfo | Record<string, never> = {};
   private selectedCamInfo: MediaDeviceInfo | Record<string, never> = {};
@@ -340,6 +460,26 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   private readonly guards = new Map<OutputElementLike, PlayoutGuard>();
   private statsSource: PlayoutStatsSource | null = null;
 
+  private readonly healthStore: CallHealthStore;
+  private readonly timings: HealthTimings;
+  private readonly permissions: PermissionsLike | null;
+  private readonly permissionReadings: Record<InputKind, PermissionReading> = {
+    audio: "unknown",
+    video: "unknown",
+  };
+  private readonly permissionUnwatch: Array<() => void> = [];
+  private readonly userAgent: string | undefined;
+  private readonly framePolicy: FramePolicy | null;
+  private readonly supported: boolean;
+  private serverSignal: Signal["server"] = "unmeasured";
+  /** What the voice runtime sees of the camera: `caller-video`, or unmeasured when it has not said. */
+  private camServer: Signal["server"] = "unmeasured";
+  private speakerRecovered: { from: Device | null; cause: Cause } | null = null;
+  /** The one pending re-judge of a silence window; see `armSilenceCheck`. */
+  private silenceTimer: ReturnType<typeof setTimeout> | null = null;
+  private speakerStalledUntil = 0;
+  private speakerTimer: ReturnType<typeof setTimeout> | null = null;
+
   private deviceChangeTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly onDeviceChange = () => this.scheduleDeviceChange();
   private readonly onVisibilityChange = () => {
@@ -358,14 +498,11 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     const mediaDevices =
       options.mediaDevices ??
       (globalThis as { navigator?: { mediaDevices?: MediaDevicesLike } }).navigator?.mediaDevices;
-    if (!mediaDevices) {
-      throw new DeviceError(
-        ["cam", "mic"],
-        "undefined-mediadevices",
-        "navigator.mediaDevices is unavailable. Capture needs a secure browser context.",
-      );
-    }
-    this.mediaDevices = mediaDevices;
+    // No longer a throw: a page without capture is a page whose mic health
+    // says `failed · not-supported`, which a UI can explain. The stand-in
+    // rejects every request the way an engine without the API would.
+    this.supported = !!mediaDevices;
+    this.mediaDevices = mediaDevices ?? unsupportedMediaDevices();
     this.visibility =
       options.visibility ??
       (typeof document !== "undefined" ? (document as VisibilitySource) : undefined);
@@ -396,14 +533,36 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       makeStream: this.makeStream,
       intervalMs: options.localAudioLevelIntervalMs,
       onLevel: (level) => this.callbacks.onLocalAudioLevel?.(level),
-      onNeedsGesture: () => this.syncGestures(),
+      onPeak: (peak, precise) => this.observeMicPeak(peak, precise),
+      onNeedsGesture: () => {
+        this.syncGestures();
+        this.evaluateMic();
+      },
     });
+
+    this.timings = { ...HEALTH_TIMINGS, ...(options.healthTimings ?? {}) };
+    const nav = (
+      globalThis as { navigator?: { permissions?: PermissionsLike; userAgent?: string } }
+    ).navigator;
+    this.permissions =
+      options.permissions === undefined ? (nav?.permissions ?? null) : options.permissions;
+    this.userAgent = options.userAgent ?? nav?.userAgent;
+    this.framePolicy =
+      options.framePolicy === undefined ? browserFramePolicy() : options.framePolicy;
 
     this.slots = {
       audio: newSlot("audio", "audio", "audioinput", true, true),
       video: newSlot("video", "video", "videoinput", true, false),
     };
     this.screen = newSlot("screenVideo", "video", "videoinput", false, false);
+
+    this.healthStore = new CallHealthStore({
+      mic: { state: "off" },
+      cam: { state: "off" },
+      speaker: { state: "idle", device: null },
+      screen: this.mediaDevices.getDisplayMedia ? { state: "off" } : { state: "not-supported" },
+      connection: INITIAL_CONNECTION,
+    });
   }
 
   /** Every slot, in transceiver order: 0 audio, 1 camera, 2 screen (SPEC.md § Ground truth). */
@@ -445,6 +604,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     if (!this.initialized) {
       this.mediaDevices.addEventListener?.("devicechange", this.onDeviceChange);
       this.visibility?.addEventListener("visibilitychange", this.onVisibilityChange);
+      this.watchPermissions();
       this.initialized = true;
     }
     await this.enqueue(async () => {
@@ -498,6 +658,12 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     this.guards.clear();
     this.blockedElements.clear();
     this.levelMeter.stop();
+    for (const unwatch of this.permissionUnwatch.splice(0)) unwatch();
+    if (this.speakerTimer) clearTimeout(this.speakerTimer);
+    this.speakerTimer = null;
+    if (this.silenceTimer) clearTimeout(this.silenceTimer);
+    this.silenceTimer = null;
+    this.healthStore.clear();
     this.armGestures(false);
     this.statsSource = null;
     this.outputElements.clear();
@@ -553,7 +719,9 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       }
       this.selectedSpeakerId = requested;
       this.selectedSpeakerInfo = found ?? syntheticDevice("audiooutput", requested);
+      this.speakerRecovered = null;
       await this.applySinkToAll(requested);
+      this.refreshSpeaker();
       if ("deviceId" in this.selectedSpeakerInfo) {
         this.callbacks.onSpeakerUpdated?.(this.selectedSpeakerInfo);
       }
@@ -594,13 +762,16 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       .catch((error: unknown) => {
         this.reportError(error, ["speaker"]);
       })
-      .then(() => this.ensurePlaying(element));
+      .then(() => this.ensurePlaying(element))
+      .then(() => this.refreshSpeaker());
+    this.refreshSpeaker();
     return () => {
       this.outputElements.delete(element);
       this.guards.get(element)?.stop();
       this.guards.delete(element);
       // An element that leaves while blocked must not keep the retry armed.
       if (this.blockedElements.delete(element)) this.publishPlaybackBlocked();
+      this.refreshSpeaker();
     };
   }
 
@@ -625,7 +796,10 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
         stats: () => this.statsSource,
         makeStream,
         play: (el) => void this.ensurePlaying(el),
-        onRecovered: (reason) => this.onPlaybackRecoveredCallback?.(reason),
+        onRecovered: (reason) => {
+          this.speakerStalled();
+          this.onPlaybackRecoveredCallback?.(reason);
+        },
       }),
     );
   }
@@ -694,6 +868,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   private publishPlaybackBlocked(): void {
     const blocked = this.playbackBlocked;
     this.syncGestures();
+    this.refreshSpeaker();
     if (blocked === this.playbackBlockedReported) return;
     this.playbackBlockedReported = blocked;
     this.onPlaybackBlockedCallback?.(blocked);
@@ -756,6 +931,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
         }
         const wasEnabled = slot.published?.enabled ?? false;
         this.setSlotEnabled(slot, true);
+        if (!wasEnabled) this.resumeCaptureHealth(slot);
         if (!wasEnabled && slot.published) this.announceStarted(slot, slot.published);
       } else if (slot.capture) {
         if (releaseOnDisable) {
@@ -764,8 +940,11 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
           const published = slot.published;
           const wasEnabled = published?.enabled ?? false;
           this.setSlotEnabled(slot, false);
+          this.settleCaptureHealth(slot);
           if (wasEnabled && published) this.announceStopped(slot, published);
         }
+      } else if (slot.health.state !== "off") {
+        this.setCaptureHealth(slot, { state: "off" });
       }
     });
   }
@@ -780,16 +959,34 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
    * Concurrent callers share the whole operation, not just the prompt. See
    * `screenRequest` for why that distinction is the bug this replaces.
    */
-  enableScreenShare(enable: boolean): Promise<void> {
+  enableScreenShare(enable: true, hints?: ScreenPickerHints): Promise<"started" | "cancelled">;
+  enableScreenShare(enable: false): Promise<void>;
+  enableScreenShare(
+    enable: boolean,
+    hints?: ScreenPickerHints,
+  ): Promise<"started" | "cancelled" | void>;
+  enableScreenShare(
+    enable: boolean,
+    hints?: ScreenPickerHints,
+  ): Promise<"started" | "cancelled" | void> {
     if (!enable) {
       this.screen.desired = false;
       return this.enqueue(() => this.release(this.screen));
     }
+    if (hints?.displaySurface === "monitor" && hints.monitorTypeSurfaces === "exclude") {
+      // Rejected here rather than by the engine, which would throw a TypeError
+      // on some versions and silently show an empty picker on others.
+      return Promise.reject(
+        new TypeError(
+          'displaySurface "monitor" cannot be combined with monitorTypeSurfaces "exclude"',
+        ),
+      );
+    }
     if (this.screenRequest) return this.screenRequest;
-    if (isLive(this.screen.capture)) return Promise.resolve();
+    if (isLive(this.screen.capture)) return Promise.resolve("started");
 
     this.screen.desired = true;
-    const request = this.startScreenShare();
+    const request = this.startScreenShare(hints);
     this.screenRequest = request;
     // `finally` rather than a detached `catch`: the caller still sees the
     // rejection, and the slot is already clear by the time they do — so a
@@ -800,26 +997,56 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     });
   }
 
-  private async startScreenShare(): Promise<void> {
+  private async startScreenShare(hints?: ScreenPickerHints): Promise<"started" | "cancelled"> {
     const getDisplayMedia = this.mediaDevices.getDisplayMedia?.bind(this.mediaDevices);
     if (!getDisplayMedia) {
       // Decision 4: `supportsScreenShare` stays true so the m-line count never
       // varies by engine; this is where an engine that cannot honour it says so.
+      this.screen.desired = false;
       throw this.reportScreenError(
         new DOMException("Screen sharing is not supported by this browser", "NotSupportedError"),
       );
     }
 
+    this.setScreenHealth({ state: "asking" });
     let stream;
     try {
       // Decision 9: video only. Screen audio would need a fourth transceiver
       // and a member pipecat's interface does not have, and it puts system
       // audio into the AEC's reference path.
-      stream = await getDisplayMedia({ video: SCREEN_CONSTRAINTS, audio: false });
+      stream = await getDisplayMedia(displayMediaOptions(hints));
     } catch (error) {
+      this.screen.desired = false;
+      const raw = rawError(error);
+      const pageBlocked = this.framePolicy ? !this.framePolicy("display-capture") : false;
+      const systemDenied = SYSTEM_DENIAL.test(raw.message);
+      if (raw.name === "NotAllowedError" && !pageBlocked && !systemDenied) {
+        // The person closed the picker. Not an error, so no error callbacks:
+        // the call resolves "cancelled" and the screen is simply off.
+        this.setScreenHealth({ state: "off" });
+        return "cancelled";
+      }
+      const problem: Problem = pageBlocked
+        ? { code: "blocked", by: "page" }
+        : systemDenied
+          ? { code: "blocked", by: "os" }
+          : raw.name === "OverconstrainedError" || raw.name === "InvalidAccessError"
+            ? // Our size bounds, not a missing device: this browser cannot capture
+              // as asked. Safari's InvalidAccessError is a call made outside a
+              // user gesture, which it refuses: nothing the person can fix.
+              { code: "not-supported" }
+            : classifyCaptureError(error, "cam", this.captureEnvironment("video", "unknown"))
+                .problem;
+      this.setScreenHealth({
+        state: "failed",
+        problem,
+        fixes: fixesFor(problem, "screen"),
+        error: raw,
+      });
       throw this.reportScreenError(error);
     }
 
+    let started = false;
     await this.enqueue(async () => {
       const track = stream.getVideoTracks()[0];
       // `enableScreenShare(false)` may have arrived while the picker was open.
@@ -838,7 +1065,24 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       // not leave a live system-audio track running.
       for (const other of stream.getTracks()) if (other !== track) safeStop(other);
       await this.install(this.screen, track);
+      started = true;
+      const surface = (track.getSettings() as { displaySurface?: string }).displaySurface;
+      this.setScreenHealth({
+        state: "live",
+        surface:
+          surface === "monitor" || surface === "window" || surface === "browser"
+            ? surface
+            : "unknown",
+      });
+    }).catch((error: unknown) => {
+      if (this.healthStore.snapshot.screen.state !== "failed")
+        this.setScreenHealth({ state: "off" });
+      throw error;
     });
+    if (!started && this.healthStore.snapshot.screen.state === "asking") {
+      this.setScreenHealth({ state: "off" });
+    }
+    return started ? "started" : "cancelled";
   }
 
   get isMicEnabled(): boolean {
@@ -964,10 +1208,51 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     }
 
     const devices: DeviceArray = slots.map((s) => (s.kind === "audio" ? "mic" : "cam"));
+    for (const slot of slots) {
+      const health = slot.health;
+      slot.silentReopened =
+        health.state === "recovering" && health.cause === "no-signal" ? slot.silentReopened : false;
+      if (health.state !== "recovering") slot.recovery = null;
+      slot.acquiring = true;
+      if (!slot.desired || health.state === "recovering") continue;
+      const permission = await this.readPermission(slot.kind);
+      this.setCaptureHealth(
+        slot,
+        permission === "prompt"
+          ? { state: "asking" }
+          : { state: "starting", device: this.deviceOf(slot) },
+      );
+    }
     let stream;
     try {
       stream = await this.mediaDevices.getUserMedia(constraints);
     } catch (error) {
+      for (const slot of slots) slot.acquiring = false;
+      if (slots.length > 1 && !isDenial(error)) {
+        // Split retry: one bad device must not take the other kind down with
+        // it. A denial is never split — a second prompt is not a retry, it is
+        // nagging, and the answer would be the same.
+        let failure: unknown = null;
+        const started: Slot[] = [];
+        for (const slot of slots) {
+          try {
+            await this.acquire([slot]);
+            started.push(slot);
+          } catch (each) {
+            failure ??= each;
+          }
+        }
+        if (started.length === 0) throw failure;
+        // Decision 3 again: on WebKit the later call can stop a track the
+        // earlier one opened, when both kinds come from one device group (a
+        // webcam with a mic). If a kind that started has ended since, open
+        // every kind that started in one call, as the first attempt meant to.
+        if (started.length > 1 && started.some((s) => !isLive(s.capture))) {
+          await this.acquire(started);
+        }
+        return;
+      }
+      for (const slot of slots) await this.failCapture(slot, error);
       throw this.reportError(error, devices);
     }
 
@@ -983,14 +1268,25 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       }
     } catch (error) {
       for (const track of stream.getTracks()) safeStop(track);
+      for (const slot of slots) {
+        slot.acquiring = false;
+        await this.failCapture(slot, error);
+      }
       throw this.reportError(error, devices);
     }
 
     for (const [index, slot] of slots.entries()) {
       const track = claimed[index];
-      if (track) await this.install(slot, track);
+      try {
+        if (track) await this.install(slot, track);
+      } finally {
+        slot.acquiring = false;
+      }
     }
     await this.refreshSelectedDevices(slots);
+    for (const slot of slots) this.settleCaptureHealth(slot, true);
+    const audio = slots.find((slot) => slot.kind === "audio");
+    if (audio) await this.avoidLoopbackOnFirstOpen(audio);
     // An open microphone is what some engines weigh when they decide autoplay:
     // WebKit plays an element it refused once capture is live, with no gesture.
     // Chrome does not, so the gesture retry stays armed either way.
@@ -1131,10 +1427,21 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   private async release(slot: Slot): Promise<void> {
     const capture = slot.capture;
     const published = slot.published;
-    if (!capture && !published) return;
+    if (!capture && !published) {
+      if (slot !== this.screen && slot.health.state !== "off" && slot.health.state !== "failed") {
+        this.setCaptureHealth(slot, { state: "off" });
+      }
+      return;
+    }
     slot.capture = null;
     slot.published = null;
     this.clearMutedTimer(slot);
+    this.forgetCamServer(slot);
+    if (slot === this.screen) {
+      this.setScreenHealth({ state: "off", ended: "app" });
+    } else {
+      this.setCaptureHealth(slot, { state: "off" });
+    }
     slot.detach?.();
     slot.detach = null;
 
@@ -1158,6 +1465,532 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
     this.syncLevelMeter(slot);
   }
 
+  // ------------------------------------------------------------- call health
+
+  /**
+   * Subscribe to `CallHealth`. The listener is called at once with the current
+   * snapshot, then on every change; snapshots are frozen and only issued when
+   * something in them changed. Returns the unsubscribe. Works before
+   * `initialize()` and before `connect()`: health is about the devices first.
+   */
+  onCallHealthChanged(listener: CallHealthListener): () => void {
+    return this.healthStore.subscribe(listener);
+  }
+
+  /**
+   * @internal The current snapshot, for this package's lab. Not public: the
+   * owner ruled out a status property — a page subscribes.
+   */
+  get callHealth(): CallHealth {
+    return this.healthStore.snapshot;
+  }
+
+  /** @internal The transport's half: the connection's state and grades. */
+  _setConnectionHealth(patch: Partial<ConnectionHealth>): void {
+    const before = this.uplinkStarved();
+    const next = { ...this.healthStore.snapshot.connection, ...patch };
+    // A new state without a reason has none; only `disconnected` ever has one.
+    if (next.state !== "disconnected" || ("state" in patch && !("reason" in patch)))
+      delete next.reason;
+    this.healthStore.update({ connection: next });
+    // The camera's "none" is read against the uplink; see evaluateCam.
+    if (this.uplinkStarved() !== before) this.evaluateCam();
+  }
+
+  private uplinkStarved(): boolean {
+    const uplink = this.healthStore.snapshot.connection.uplink;
+    return uplink === "poor" || uplink === "bad";
+  }
+
+  /** @internal For the unreachable bound: a permission prompt is open. */
+  _captureAsking(): boolean {
+    const { mic, cam } = this.healthStore.snapshot;
+    return mic.state === "asking" || cam.state === "asking";
+  }
+
+  /**
+   * @internal What the voice runtime hears of the mic (`caller-audio`) or sees of the
+   * camera (`caller-video`), or unmeasured when it says nothing.
+   */
+  _setServerSignal(server: Signal["server"], device: "mic" | "cam" = "mic"): void {
+    if (device === "cam") {
+      // A verdict in flight as the camera was muted or switched off is about a
+      // picture that is gone: the next one starts afresh.
+      const cam = this.slots.video;
+      if (!isLive(cam.capture) || !cam.capture.enabled || !cam.desired) server = "unmeasured";
+      if (server === this.camServer) return;
+      this.camServer = server;
+      this.evaluateCam();
+      return;
+    }
+    if (server === this.serverSignal) return;
+    this.serverSignal = server;
+    if (server === "sound") this.slots.audio.heard = true;
+    this.evaluateMic();
+    // The camera's "none" is read against the mic's; see evaluateCam.
+    this.evaluateCam();
+  }
+
+  private serverOf(slot: Slot): Signal["server"] {
+    return slot.kind === "audio" ? this.serverSignal : this.camServer;
+  }
+
+  /**
+   * The camera was switched off: the voice runtime stops judging it, and judges afresh
+   * once it is back on, so its last verdict is no longer this camera's.
+   */
+  private forgetCamServer(slot: Slot): void {
+    if (slot.kind === "video" && slot !== this.screen) this.camServer = "unmeasured";
+  }
+
+  private setCaptureHealth(slot: Slot, health: CaptureHealth): void {
+    if (slot === this.screen) return;
+    slot.health = health;
+    this.healthStore.update(slot.kind === "audio" ? { mic: health } : { cam: health });
+  }
+
+  private setScreenHealth(health: ScreenHealth): void {
+    this.healthStore.update({ screen: health });
+  }
+
+  private deviceOf(slot: Slot, track: TrackLike | null = slot.capture): Device {
+    let deviceId = "";
+    let label = "";
+    if (track) {
+      try {
+        deviceId = track.getSettings().deviceId ?? "";
+      } catch {
+        // A track that cannot describe itself.
+      }
+      label = track.label ?? "";
+    }
+    const selected = slot.kind === "audio" ? this.selectedMicInfo : this.selectedCamInfo;
+    if ("deviceId" in selected) {
+      if (!deviceId) deviceId = selected.deviceId;
+      if (!label && selected.deviceId === deviceId) label = selected.label;
+    }
+    return describeDevice(deviceId || slot.deviceId, label, slot.kind === "audio");
+  }
+
+  private async readPermission(kind: InputKind): Promise<PermissionReading> {
+    const permissions = this.permissions;
+    if (!permissions) return "unknown";
+    try {
+      const status = await permissions.query({ name: kind === "audio" ? "microphone" : "camera" });
+      const reading = asReading(status.state);
+      this.permissionReadings[kind] = reading;
+      return reading;
+    } catch {
+      // Firefox before 131 knows no "camera"/"microphone"; some webviews have no API.
+      return this.permissionReadings[kind];
+    }
+  }
+
+  /**
+   * Watch both permissions for the rest of the manager's life. A permission
+   * granted in the browser's site settings while the slot is failed is a
+   * recovery: open the device again without a click.
+   */
+  private watchPermissions(): void {
+    const permissions = this.permissions;
+    if (!permissions) return;
+    for (const kind of ["audio", "video"] as const) {
+      void permissions
+        .query({ name: kind === "audio" ? "microphone" : "camera" })
+        .then((status) => {
+          if (this.destroyed) return;
+          this.permissionReadings[kind] = asReading(status.state);
+          if (typeof status.addEventListener !== "function") return;
+          const onChange = () => this.permissionChanged(kind, asReading(status.state));
+          status.addEventListener("change", onChange);
+          this.permissionUnwatch.push(() => status.removeEventListener?.("change", onChange));
+        })
+        .catch(() => undefined);
+    }
+  }
+
+  private permissionChanged(kind: InputKind, reading: PermissionReading): void {
+    this.permissionReadings[kind] = reading;
+    const slot = this.slots[kind];
+    const health = slot.health;
+    if (reading !== "granted" || health.state !== "failed" || !slot.desired) return;
+    if (health.problem.code !== "blocked" && health.problem.code !== "prompt-dismissed") return;
+    const device = this.deviceOf(slot);
+    slot.recovery = { from: null, cause: "permission-granted" };
+    this.setCaptureHealth(slot, { state: "recovering", device, cause: "permission-granted" });
+    void this.enqueue(async () => {
+      if (!slot.desired || this.destroyed) return;
+      try {
+        await this.acquire([slot]);
+      } catch {
+        // Already reported as a DeviceError.
+      }
+    });
+  }
+
+  private captureEnvironment(kind: InputKind, permission: PermissionReading) {
+    return {
+      permission,
+      framePolicyBlocked: this.framePolicy
+        ? !this.framePolicy(kind === "audio" ? "microphone" : "camera")
+        : false,
+      inAppBrowser: isInAppBrowser(this.userAgent),
+    };
+  }
+
+  private async failCapture(slot: Slot, error: unknown): Promise<void> {
+    if (!this.supported) {
+      const problem: Problem = { code: "not-supported" };
+      this.setCaptureHealth(slot, {
+        state: "failed",
+        device: null,
+        problem,
+        fixes: fixesFor(problem, slot.kind === "audio" ? "mic" : "cam"),
+        error: rawError(error),
+      });
+      return;
+    }
+    const permission = await this.readPermission(slot.kind);
+    const classified = classifyCaptureError(
+      error,
+      slot.kind === "audio" ? "mic" : "cam",
+      this.captureEnvironment(slot.kind, permission),
+    );
+    slot.recovery = null;
+    this.setCaptureHealth(slot, {
+      state: "failed",
+      device: slot.deviceId === "default" ? null : this.deviceOf(slot, null),
+      problem: classified.problem,
+      fixes: classified.fixes,
+      error: classified.error,
+    });
+  }
+
+  /**
+   * Bring a slot's health in line with its capture. `fresh` is a capture that
+   * just opened: its signal history starts over, and its first reading decides
+   * between live and the silent-device rules.
+   */
+  private settleCaptureHealth(slot: Slot, fresh = false): void {
+    if (slot === this.screen) return;
+    const capture = slot.capture;
+    if (!isLive(capture)) {
+      if (!slot.desired && slot.health.state !== "failed")
+        this.setCaptureHealth(slot, { state: "off" });
+      return;
+    }
+    if (!capture.enabled || !slot.desired) {
+      this.forgetCamServer(slot);
+      this.setCaptureHealth(slot, { state: "muted", device: this.deviceOf(slot) });
+      return;
+    }
+    if (fresh) {
+      slot.quietSince = null;
+      slot.local = "unmeasured";
+      slot.heard = false;
+      slot.soundRun = null;
+      slot.openedAt = Date.now();
+      slot.recovered = null;
+    }
+    if (slot.kind === "video") {
+      this.evaluateCam();
+      return;
+    }
+    if (fresh && slot.health.state !== "recovering") {
+      this.setCaptureHealth(slot, { state: "starting", device: this.deviceOf(slot) });
+    }
+    this.evaluateMic();
+  }
+
+  /** Unmute: the same capture comes back, and the silence clock restarts. */
+  private resumeCaptureHealth(slot: Slot): void {
+    slot.quietSince = null;
+    if (slot.health.state === "muted") {
+      this.setCaptureHealth(slot, {
+        state: "live",
+        device: slot.health.device,
+        signal: { local: slot.local, server: this.serverOf(slot) },
+      });
+    }
+    this.settleCaptureHealth(slot);
+  }
+
+  private observeMicPeak(peak: number, precise: boolean): void {
+    const slot = this.slots.audio;
+    const capture = slot.capture;
+    if (!isLive(capture) || !capture.enabled) return;
+    if (peak > SILENT_PEAK) {
+      const now = Date.now();
+      slot.local = "sound";
+      slot.quietSince = null;
+      const run = slot.soundRun;
+      slot.soundRun =
+        run && now - run.last <= this.timings.heardGapMs
+          ? { from: run.from, last: now }
+          : { from: now, last: now };
+      if (now - slot.soundRun.from >= this.timings.heardAfterMs) {
+        slot.heard = true;
+        slot.interruptions = 0;
+      }
+    } else if (precise) {
+      // Byte-depth analysers cannot tell digital silence from a quiet room,
+      // so only a float reading starts the silence clock.
+      slot.quietSince ??= Date.now();
+    } else {
+      return;
+    }
+    this.evaluateMic();
+  }
+
+  /** The mic's signal rules; see `HealthTimings`. Idempotent: call it whenever an input changed. */
+  private evaluateMic(): void {
+    const slot = this.slots.audio;
+    const capture = slot.capture;
+    const health = slot.health;
+    if (!isLive(capture) || !capture.enabled || !slot.desired || slot.acquiring) return;
+    if (health.state === "recovering" && health.cause !== "no-signal" && !slot.heard) {
+      // Still opening after a device-lost or interruption: the first reading decides.
+      if (!this.levelMeter.measuring) this.goLive(slot);
+      else this.judgeSilence(slot);
+      return;
+    }
+    if (health.state === "failed" && health.problem.code !== "no-signal") return;
+    const measuring = this.levelMeter.measuring;
+    if (!measuring) {
+      slot.local = "unmeasured";
+      slot.quietSince = null;
+    }
+    this.judgeSilence(slot);
+  }
+
+  private judgeSilence(slot: Slot): void {
+    if (this.deviceOf(slot).traits.includes("virtual")) {
+      // A noise-gated virtual mic (Krisp, NVIDIA Broadcast) sends exact zeros
+      // whenever nobody speaks, so its silence says nothing about the device.
+      this.goLive(slot);
+      return;
+    }
+    const now = Date.now();
+    const quietFor = slot.quietSince === null ? 0 : now - slot.quietSince;
+    const sinceOpen = now - slot.openedAt;
+    // The voice runtime's verdict stands in only where this page cannot measure. Only
+    // "silent" counts: "none" (no packets) is also what a network drop looks
+    // like, and the connection's grades say that. Where this page measures,
+    // its own reading wins — the voice runtime's floor is provisional until it is set from
+    // hardware data, and a quiet room under noise suppression must not read as
+    // a broken mic. (Sound here with "silent" at the voice runtime would mean our publish
+    // path is broken; that warning waits for the floors to agree.)
+    const serverSilent =
+      slot.local === "unmeasured" &&
+      this.serverSignal === "silent" &&
+      sinceOpen >= this.timings.silentAtJoinMs;
+
+    if (!slot.heard) {
+      if ((slot.quietSince !== null && quietFor >= this.timings.silentAtJoinMs) || serverSilent) {
+        if (slot.quietSince !== null) slot.local = "silent";
+        this.silentAtJoin(slot);
+        return;
+      }
+      // A failed mic leaves only on a sustained sound (`heard`), or on the voice runtime
+      // hearing it where this page cannot: one click from a dead mic is not a voice.
+      if (slot.health.state === "failed" && slot.local !== "unmeasured") return;
+      if (slot.health.state === "failed" && this.serverSignal !== "sound") return;
+      // Nothing decided yet: starting stays starting while the meter listens;
+      // with nothing to listen with, the device is live and unmeasured.
+      if (slot.health.state === "starting" || slot.health.state === "recovering") {
+        if (this.levelMeter.measuring) {
+          this.armSilenceCheck(slot, this.timings.silentAtJoinMs - quietFor);
+          return;
+        }
+      }
+      this.goLive(slot);
+      return;
+    }
+
+    if ((slot.quietSince !== null && quietFor >= this.timings.degradedAfterMs) || serverSilent) {
+      if (slot.quietSince !== null) slot.local = "silent";
+      const problem: Problem = { code: "no-signal" };
+      this.setCaptureHealth(slot, {
+        state: "degraded",
+        device: this.deviceOf(slot),
+        signal: { local: slot.local, server: this.serverSignal },
+        problem,
+        fixes: fixesFor(problem, "mic"),
+      });
+      return;
+    }
+    this.goLive(slot);
+  }
+
+  /** Re-judge when a silence window would close, in case no tick lands then. */
+  private armSilenceCheck(slot: Slot, inMs: number): void {
+    if (slot.quietSince === null || this.silenceTimer) return;
+    this.silenceTimer = setTimeout(
+      () => {
+        this.silenceTimer = null;
+        this.evaluateMic();
+      },
+      Math.max(0, inMs) + 1,
+    );
+  }
+
+  /** A device that opened and has never made a sound: reopen it once, then say so. */
+  private silentAtJoin(slot: Slot): void {
+    const device = this.deviceOf(slot);
+    if (!slot.silentReopened) {
+      slot.silentReopened = true;
+      slot.recovery = { from: device, cause: "no-signal" };
+      this.setCaptureHealth(slot, { state: "recovering", device, cause: "no-signal" });
+      void this.enqueue(async () => {
+        if (!slot.desired || this.destroyed) return;
+        try {
+          await this.acquire([slot]);
+        } catch {
+          // Already reported as a DeviceError.
+        }
+      });
+      return;
+    }
+    if (slot.health.state === "failed") return;
+    const problem: Problem = { code: "no-signal" };
+    this.setCaptureHealth(slot, {
+      state: "failed",
+      device,
+      problem,
+      fixes: fixesFor(problem, slot.kind === "audio" ? "mic" : "cam"),
+    });
+  }
+
+  private goLive(slot: Slot): void {
+    if (slot.recovery && slot.health.state === "recovering") {
+      slot.recovered = slot.recovery;
+      slot.recovery = null;
+    }
+    const health: CaptureHealth = {
+      state: "live",
+      device: this.deviceOf(slot),
+      signal: {
+        local: slot.local,
+        server: this.serverOf(slot),
+      },
+    };
+    if (slot.recovered) health.recovered = slot.recovered;
+    this.setCaptureHealth(slot, health);
+  }
+
+  /**
+   * The camera's rules. The page does not look at its own picture: the voice runtime
+   * decodes what reaches it and says (`caller-video`), and until it has, the
+   * camera is live and unmeasured.
+   *
+   * - Black from the start is a failure: a closed shutter, a covered lens, a
+   *   virtual camera whose app is not running (its fixes say so). Black after
+   *   a picture is degraded. A camera another app holds never gets here: it
+   *   fails to open (`already-in-use`).
+   * - No frames reaching the voice runtime is degraded, but only while the voice runtime still receives
+   *   the mic and the uplink grades better than poor: a congested uplink drops
+   *   video before audio, and with neither the network dropped. The connection
+   *   says so in both cases.
+   */
+  private evaluateCam(): void {
+    const slot = this.slots.video;
+    const capture = slot.capture;
+    if (!isLive(capture) || !capture.enabled || !slot.desired || slot.acquiring) return;
+    const server = this.camServer;
+    if (server === "sound") slot.heard = true;
+    const problem: Problem = { code: "no-signal" };
+    if (server === "silent" && !slot.heard) {
+      if (slot.health.state !== "failed") {
+        this.setCaptureHealth(slot, {
+          state: "failed",
+          device: this.deviceOf(slot),
+          problem,
+          fixes: fixesFor(problem, "cam", this.deviceOf(slot).traits),
+        });
+      }
+      return;
+    }
+    if (server === "silent") {
+      this.setCaptureHealth(slot, {
+        state: "degraded",
+        device: this.deviceOf(slot),
+        signal: { local: slot.local, server },
+        problem,
+        fixes: fixesFor(problem, "cam", this.deviceOf(slot).traits),
+      });
+      return;
+    }
+    if (server === "none" && this.serverSignal !== "none" && !this.uplinkStarved()) {
+      // The picture is not black, it is missing: a shutter has nothing to do
+      // with it. A camera that stopped sending frames is the likely cause.
+      this.setCaptureHealth(slot, {
+        state: "degraded",
+        device: this.deviceOf(slot),
+        signal: { local: slot.local, server },
+        problem,
+        fixes: ["choose-another-device"],
+      });
+      return;
+    }
+    this.goLive(slot);
+  }
+
+  /**
+   * The first time the mic opens on the system default, a default that is a
+   * loopback (Stereo Mix, a virtual cable) captures the speakers, not the
+   * person: move to the communications device, or the first real mic, once.
+   * An explicit choice is never second-guessed.
+   */
+  private async avoidLoopbackOnFirstOpen(slot: Slot): Promise<void> {
+    if (slot.loopbackChecked) return;
+    slot.loopbackChecked = true;
+    if (slot.deviceId !== "default" || !isLive(slot.capture)) return;
+    if (!this.deviceOf(slot).traits.includes("loopback")) return;
+    const inputs = await this.devicesOfKind("audioinput").catch(() => [] as MediaDeviceInfo[]);
+    const real = inputs.filter(
+      (d) => d.deviceId && d.deviceId !== "default" && !traitsOf(d.label).includes("loopback"),
+    );
+    const communications = inputs.find(
+      (d) => d.deviceId === "communications" && !traitsOf(d.label).includes("loopback"),
+    );
+    const pick = communications ?? real.find((d) => d.deviceId !== "communications");
+    if (!pick || this.destroyed || !slot.desired) return;
+    slot.deviceId = pick.deviceId;
+    try {
+      await this.acquire([slot]);
+    } catch {
+      // Already reported as a DeviceError.
+    }
+  }
+
+  private refreshSpeaker(): void {
+    const info = this.selectedSpeakerInfo;
+    const device = "deviceId" in info ? describeDevice(info.deviceId, info.label) : null;
+    let health: SpeakerHealth;
+    if (this.blockedElements.size > 0) {
+      health = { state: "blocked" };
+    } else if (this.outputElements.size === 0) {
+      health = { state: "idle", device };
+    } else if (Date.now() < this.speakerStalledUntil) {
+      health = { state: "recovering", device, cause: "stalled" };
+    } else {
+      health = { state: "playing", device, signal: "unmeasured" };
+      if (this.speakerRecovered) health.recovered = this.speakerRecovered;
+    }
+    this.healthStore.update({ speaker: health });
+  }
+
+  /** The playout guard just restarted a stalled element: show it briefly. */
+  private speakerStalled(): void {
+    this.speakerStalledUntil = Date.now() + this.timings.speakerRecoveringMs;
+    this.refreshSpeaker();
+    if (this.speakerTimer) clearTimeout(this.speakerTimer);
+    this.speakerTimer = setTimeout(() => {
+      this.speakerTimer = null;
+      this.refreshSpeaker();
+    }, this.timings.speakerRecoveringMs + 1);
+  }
+
   /**
    * Point the level meter at the microphone it should measure: the capture
    * track while it is live and enabled, otherwise nothing. Called after every
@@ -1179,6 +2012,7 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   private async selectInput(slot: Slot, deviceId: string): Promise<void> {
     const previous = slot.deviceId;
     slot.deviceId = deviceId;
+    slot.loopbackChecked = true;
     try {
       if (slot.desired || isLive(slot.capture)) {
         await this.acquire([slot]);
@@ -1201,10 +2035,37 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
 
     const onEnded = () => this.handleEnded(slot, track);
     const onMute = () => {
-      if (slot.capture === track) this.scheduleMutedRecovery(slot, track);
+      if (slot.capture !== track) return;
+      this.scheduleMutedRecovery(slot, track);
+      if (
+        slot.recoverable &&
+        slot.desired &&
+        this.visibility &&
+        this.visibility.visibilityState !== "visible"
+      ) {
+        // A phone took the device (a call, Siri, another app). Nothing to do
+        // until the page is back in front; say so rather than "silent".
+        const device = this.deviceOf(slot);
+        slot.recovery = { from: device, cause: "interrupted" };
+        this.setCaptureHealth(slot, { state: "recovering", device, cause: "interrupted" });
+      }
     };
     const onUnmute = () => {
-      if (slot.capture === track) this.clearMutedTimer(slot);
+      if (slot.capture !== track) return;
+      this.clearMutedTimer(slot);
+      const health = slot.health;
+      if (health.state === "failed" && health.problem.code === "interrupted") {
+        // Whatever held the device let it go: the same capture is back.
+        const device = this.deviceOf(slot);
+        slot.interruptions = 0;
+        slot.recovery = { from: device, cause: "interrupted" };
+        this.setCaptureHealth(slot, { state: "recovering", device, cause: "interrupted" });
+        this.settleCaptureHealth(slot, false);
+        return;
+      }
+      if (health.state === "recovering" && health.cause === "interrupted") {
+        this.settleCaptureHealth(slot, false);
+      }
     };
 
     track.addEventListener("ended", onEnded);
@@ -1247,12 +2108,29 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       if (!slot.recoverable) {
         // The user pressed the browser's own "Stop sharing". There is nothing
         // to recover — a re-acquire here would put a picker on screen nobody
-        // asked for. Stop wanting it, and let `isSharingScreen` and the stop
-        // announcement above tell the app what happened.
+        // asked for. Stop wanting it, and say so: `ended: "user"`.
         slot.desired = false;
+        this.setScreenHealth({ state: "off", ended: "user" });
         return;
       }
-      if (!slot.desired || !this.initialized || this.destroyed) return;
+      if (!slot.desired || !this.initialized || this.destroyed) {
+        this.setCaptureHealth(slot, { state: "off" });
+        return;
+      }
+      if ((await this.readPermission(slot.kind)) === "denied") {
+        // The permission was taken back mid-call; asking again cannot work.
+        const problem: Problem = { code: "blocked", by: "user" };
+        this.setCaptureHealth(slot, {
+          state: "failed",
+          device: this.deviceOf(slot),
+          problem,
+          fixes: fixesFor(problem, slot.kind === "audio" ? "mic" : "cam"),
+        });
+        return;
+      }
+      const lost = this.deviceOf(slot, track);
+      slot.recovery = { from: lost, cause: "device-lost" };
+      this.setCaptureHealth(slot, { state: "recovering", device: lost, cause: "device-lost" });
 
       if (this.fallbackToDefaultDevice && slot.deviceId !== "default") {
         const devices = await this.devicesOfKind(slot.deviceKind).catch(() => []);
@@ -1283,6 +2161,25 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
           // permission prompt the user cannot see. The visibilitychange handler
           // re-schedules this the moment the tab comes back.
           if (this.visibility && this.visibility.visibilityState !== "visible") return;
+          const now = Date.now();
+          if (now - slot.interruptedAt >= this.timings.interruptionRunMs) slot.interruptions = 0;
+          slot.interruptedAt = now;
+          slot.interruptions += 1;
+          const device = this.deviceOf(slot);
+          if (slot.interruptions > this.timings.interruptedReopens) {
+            // Reopening keeps handing back a muted device: something else holds
+            // it. Stop churning and ask the person.
+            const problem: Problem = { code: "interrupted" };
+            this.setCaptureHealth(slot, {
+              state: "failed",
+              device,
+              problem,
+              fixes: fixesFor(problem, slot.kind === "audio" ? "mic" : "cam"),
+            });
+            return;
+          }
+          slot.recovery = { from: device, cause: "interrupted" };
+          this.setCaptureHealth(slot, { state: "recovering", device, cause: "interrupted" });
           try {
             await this.acquire([slot]);
           } catch {
@@ -1338,6 +2235,15 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
         // report a device error the user can do nothing about.
         slot.deviceId = "default";
         if (slot.desired && candidates.length > 0 && !this.destroyed) {
+          if (isLive(slot.capture)) {
+            const lost = this.deviceOf(slot);
+            slot.recovery = { from: lost, cause: "device-lost" };
+            this.setCaptureHealth(slot, {
+              state: "recovering",
+              device: lost,
+              cause: "device-lost",
+            });
+          }
           try {
             await this.acquire([slot]);
           } catch {
@@ -1374,6 +2280,11 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
       this.selectedSpeakerId !== "default" && !found && !isPlaceholderList(candidates);
 
     if (vanished && this.fallbackToDefaultDevice) {
+      const from = "deviceId" in this.selectedSpeakerInfo ? this.selectedSpeakerInfo : null;
+      this.speakerRecovered = {
+        from: from ? describeDevice(from.deviceId, from.label) : null,
+        cause: "device-lost",
+      };
       this.selectedSpeakerId = "default";
       try {
         await this.applySinkToAll("default");
@@ -1389,8 +2300,12 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   }
 
   private announceSpeaker(device: MediaDeviceInfo): void {
-    if (sameDevice(this.selectedSpeakerInfo, device)) return;
+    if (sameDevice(this.selectedSpeakerInfo, device)) {
+      this.refreshSpeaker();
+      return;
+    }
     this.selectedSpeakerInfo = device;
+    this.refreshSpeaker();
     this.callbacks.onSpeakerUpdated?.(device);
   }
 
@@ -1560,6 +2475,36 @@ export class VoqalizeMediaManager implements MediaManagerSurface {
   }
 }
 
+function asReading(state: string): PermissionReading {
+  return state === "granted" || state === "denied" || state === "prompt" ? state : "unknown";
+}
+
+function isDenial(error: unknown): boolean {
+  const name = rawError(error).name;
+  return name === "NotAllowedError" || name === "PermissionDeniedError" || name === "SecurityError";
+}
+
+function displayMediaOptions(hints?: ScreenPickerHints): DisplayMediaStreamOptions {
+  const video: MediaTrackConstraints = { ...SCREEN_CONSTRAINTS };
+  const options: DisplayMediaStreamOptions & Record<string, unknown> = { video, audio: false };
+  if (!hints) return options;
+  if (hints.displaySurface) video.displaySurface = hints.displaySurface;
+  if (hints.selfBrowserSurface) options.selfBrowserSurface = hints.selfBrowserSurface;
+  if (hints.surfaceSwitching) options.surfaceSwitching = hints.surfaceSwitching;
+  if (hints.monitorTypeSurfaces) options.monitorTypeSurfaces = hints.monitorTypeSurfaces;
+  return options;
+}
+
+/** What the manager talks to on a page with no `navigator.mediaDevices`. */
+function unsupportedMediaDevices(): MediaDevicesLike {
+  const unsupported = () =>
+    new TypeError("navigator.mediaDevices is unavailable. Capture needs a secure browser context.");
+  return {
+    enumerateDevices: () => Promise.resolve([]),
+    getUserMedia: () => Promise.reject(unsupported()),
+  };
+}
+
 function newSlot(
   key: SlotKey,
   kind: InputKind,
@@ -1580,6 +2525,19 @@ function newSlot(
     mutedTimer: null,
     intentionalStops: new WeakSet(),
     detach: null,
+    health: { state: "off" },
+    quietSince: null,
+    local: "unmeasured",
+    heard: false,
+    soundRun: null,
+    silentReopened: false,
+    interruptions: 0,
+    interruptedAt: 0,
+    loopbackChecked: false,
+    recovery: null,
+    recovered: null,
+    openedAt: 0,
+    acquiring: false,
   };
 }
 

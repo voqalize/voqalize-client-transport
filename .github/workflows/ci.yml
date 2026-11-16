@@ -92,6 +92,30 @@ jobs:
       - name: contract suite over the fake platform
         run: pnpm test:unit
 
+  client-js:
+    # The peer range is wide (`package.json`); the lockfile pins its floor.
+    # Apps move to the newest line first, so the unit and contract suites also
+    # run against it. Each entry is a version an app may install.
+    name: client-js ${{ matrix.version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        version: ["1.16"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: install client-js ${{ matrix.version }}
+        run: pnpm add -D "@pipecat-ai/client-js@~${{ matrix.version }}.0"
+      - run: pnpm typecheck
+      - run: pnpm build
+      - run: pnpm test:unit
+
   browsers:
     name: browser — ${{ matrix.engine }}
     runs-on: ubuntu-latest

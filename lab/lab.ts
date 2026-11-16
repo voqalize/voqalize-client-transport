@@ -14,6 +14,7 @@ import {
   type DeviceSnapshot,
   type EncodingPolicySnapshot,
   type EventLog,
+  type HealthPart,
   type LabApi,
   type LabMethod,
   type LabResetOptions,
@@ -35,6 +36,7 @@ import type { RelayDirection, RelayStats } from "./relayTypes";
 import { LabTransport, type LaneNumbers, type TransportSnapshot } from "./labTransport";
 import type { OutputElementLike, ScriptKind, TrackLike } from "../src/mediaPlatform";
 import { DeviceError } from "../src/pipecatTypes";
+import type { CallHealth, ScreenPickerHints } from "../src/callHealth";
 import { ENCODING_POLICY, VoqalizeMediaManager } from "../src/mediaManager";
 
 /** The originating DOM exception's name, where the manager kept one. */
@@ -57,6 +59,34 @@ function snapshotTrack(track: TrackLike | null | undefined): TrackSnapshot | nul
   };
 }
 
+/** Test-scale health timings: the rules, faster. Only with the scripted world. */
+const LAB_HEALTH_TIMINGS = {
+  silentAtJoinMs: 250,
+  degradedAfterMs: 350,
+  interruptedReopens: 2,
+  interruptionRunMs: 400,
+  speakerRecoveringMs: 120,
+};
+
+const HEALTH_PARTS: HealthPart[] = ["mic", "cam", "speaker", "screen", "connection"];
+
+/** One line per state: the state, then what distinguishes it. */
+export function describeHealthPart(part: HealthPart, health: CallHealth): string {
+  const h = health[part] as unknown as Record<string, unknown>;
+  const bits = [String(h.state)];
+  const problem = h.problem as { code: string; by?: string } | undefined;
+  if (problem) bits.push(problem.code, ...(problem.by ? [problem.by] : []));
+  if (typeof h.cause === "string") bits.push(h.cause);
+  if (typeof h.ended === "string") bits.push(h.ended);
+  if (typeof h.reason === "string") bits.push(h.reason);
+  if (typeof h.surface === "string") bits.push(h.surface);
+  const signal = h.signal as { local: string } | string | undefined;
+  if (signal && typeof signal === "object" && h.state === "live") bits.push(signal.local);
+  const recovered = h.recovered as { cause: string } | undefined;
+  if (recovered) bits.push(`recovered-from-${recovered.cause}`);
+  return bits.join(":");
+}
+
 function snapshotDevice(device: MediaDeviceInfo): DeviceSnapshot {
   return {
     deviceId: device.deviceId,
@@ -75,6 +105,7 @@ export class Lab implements LabApi {
   private readonly elements: OutputElementLike[] = [];
   private readonly unbinds: Array<() => void> = [];
   private readonly playback: string[] = [];
+  private readonly healthLines: string[] = [];
   /** Stands in for `document` as the gesture source, so both tiers dispatch one the same way. */
   private gestures = new EventTarget();
   /**
@@ -129,6 +160,28 @@ export class Lab implements LabApi {
         ? {}
         : { fallbackToDefaultDevice: options.fallbackToDefaultDevice }),
       onPlaybackBlocked: (blocked) => this.playback.push(blocked ? "blocked" : "playing"),
+      ...platform.healthSeams(options.scriptedHealth === true),
+      ...(options.unmeasuredMic ? { createAudioContext: null } : {}),
+      ...(options.scriptedHealth
+        ? { healthTimings: LAB_HEALTH_TIMINGS, localAudioLevelIntervalMs: 20 }
+        : {}),
+      ...(options.userAgent === undefined ? {} : { userAgent: options.userAgent }),
+      ...(options.framePolicyBlocked ? { framePolicy: () => false } : {}),
+    });
+    this.healthLines.length = 0;
+    let previous: CallHealth | null = null;
+    const lastLine = new Map<HealthPart, string>();
+    manager.onCallHealthChanged((health) => {
+      for (const part of HEALTH_PARTS) {
+        if (previous && JSON.stringify(previous[part]) === JSON.stringify(health[part])) continue;
+        // A change that only fills in detail (the device, once it is open)
+        // reads the same; the log is the sequence of states.
+        const line = `${part}:${describeHealthPart(part, health)}`;
+        if (lastLine.get(part) === line) continue;
+        lastLine.set(part, line);
+        this.healthLines.push(line);
+      }
+      previous = health;
     });
 
     manager.setClientOptions({
@@ -227,8 +280,53 @@ export class Lab implements LabApi {
   async enableCam(enable: boolean): Promise<void> {
     await this.m.enableCam(enable);
   }
-  async enableScreenShare(enable: boolean): Promise<void> {
-    await this.m.enableScreenShare(enable);
+  async enableScreenShare(
+    enable: boolean,
+    hints?: ScreenPickerHints,
+  ): Promise<"started" | "cancelled" | void> {
+    return this.m.enableScreenShare(enable, hints);
+  }
+  async health(): Promise<CallHealth> {
+    return JSON.parse(JSON.stringify(this.m.callHealth)) as CallHealth;
+  }
+  async healthLog(part?: HealthPart): Promise<string[]> {
+    return part ? this.healthLines.filter((l) => l.startsWith(`${part}:`)) : [...this.healthLines];
+  }
+  async clearHealthLog(): Promise<void> {
+    this.healthLines.length = 0;
+  }
+  async setInputLevel(deviceId: string, level: number): Promise<boolean> {
+    return this.p.setInputLevel(deviceId, level);
+  }
+  async setUplink(uplink: "good" | "fair" | "poor" | "bad" | "unknown"): Promise<void> {
+    this.m._setConnectionHealth({ uplink });
+  }
+  async setServerSignal(
+    server: "sound" | "silent" | "none" | "unmeasured",
+    device: "mic" | "cam" = "mic",
+  ): Promise<void> {
+    this.m._setServerSignal(server, device);
+  }
+  async addDevice(deviceId: string, kind: MediaDeviceKind, label: string): Promise<boolean> {
+    return this.p.addDevice(deviceId, kind, label);
+  }
+  async setPermission(
+    name: "microphone" | "camera",
+    state: "granted" | "denied" | "prompt",
+  ): Promise<boolean> {
+    return this.p.setPermission(name, state);
+  }
+  async waitForHealth(part: HealthPart, line: string, timeoutMs = 3000): Promise<void> {
+    const want = `${part}:${line}`;
+    const deadline = Date.now() + timeoutMs;
+    while (!this.healthLines.includes(want)) {
+      if (Date.now() > deadline) {
+        throw new Error(
+          `no "${want}" in ${JSON.stringify(this.healthLines.filter((l) => l.startsWith(part)))}`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   }
   async updateCam(deviceId: string): Promise<void> {
     await this.m.updateCam(deviceId);
@@ -637,6 +735,15 @@ export const LAB_METHODS = [
   "supportsScreenShare",
   "enableCam",
   "enableScreenShare",
+  "health",
+  "healthLog",
+  "clearHealthLog",
+  "setInputLevel",
+  "setServerSignal",
+  "setUplink",
+  "addDevice",
+  "setPermission",
+  "waitForHealth",
   "updateCam",
   "getAllMics",
   "getAllCams",

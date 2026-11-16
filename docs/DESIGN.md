@@ -154,6 +154,120 @@ engine whose stats lack either counter gets the error path only. The stats
 come from the transport's peer connection, which `attachTrackChangedHandler`
 hands the manager.
 
+## Call health
+
+pipecat's `mediaState` says whether a device is on. It cannot say that a
+microphone is open and silent, that the operating system rather than the user
+refused it, or that the network never formed a path. `CallHealth` is a
+superset of it, not an extension of its union: pipecat's states stay driven by
+the same errors they were driven by before. Extending it in place is not open
+to a transport: `mediaState` belongs to the client, its states and reasons are
+closed unions an app switches over, and it leaves `error` only when the app
+calls `initDevices()` again. What `CallHealth` can do is not say a second
+time what pipecat already says: where pipecat has a word for a problem
+(`blocked`, `already-in-use`, `not-found`, `not-supported`, `unknown`), `CallHealth`
+uses it, and the package exports only `CallHealth`, its listener and its
+parts, not the leaf types inside them.
+
+**One store, frozen snapshots.** `CallHealthStore` holds a part per device and
+one for the connection. A write that changes nothing publishes nothing, and a
+listener that throws does not stop the others. Every snapshot is frozen, so a
+listener cannot change what the next one sees.
+
+**Classified where the error happens.** A capture error is classified once, in
+`classifyCaptureError`, from the error and what the page can read about its
+environment: the permission state, the frame's permissions policy, and whether
+the user agent is an in-app browser. The order is page, then operating system,
+then in-app browser, then policy, then a dismissed prompt, then the user. An
+earlier cause explains a later one. A frame that may not capture looks, in the
+error, exactly like a user who said no. `fixesFor` maps a problem to what the
+user can do, in the order to offer it.
+
+**Silence: the page decides where it can measure.** The page measures the
+microphone with the level-meter clone it already had (decision 7). The voice
+runtime reports what it decoded. A microphone that gives nothing is reopened
+once, because a reopen fixes a driver that stopped delivering, and then
+reported as `no-signal`. A room that is merely quiet still carries noise, so it
+is not silence. A muted microphone is not judged, and neither is a `virtual`
+one: a noise-gated microphone (Krisp, NVIDIA Broadcast) gives exact zeros
+whenever nobody speaks, so its silence would fail a person who is listening.
+A dead virtual microphone goes unreported; that is the price of never telling
+a quiet listener their microphone is broken.
+
+**Interruptions come in runs.** A device the system takes back (a phone call,
+another app) is reopened when the page is in front. One that keeps coming back
+muted is `failed` with `interrupted` after a few reopens, and clears by itself
+when its holder lets go. An interruption a minute or more after the last one
+starts a new run, so a long call's occasional interruptions never add up to a
+failure.
+
+Where the page measures, its own reading wins. The runtime's `silent` stands in
+only where the page cannot measure (its audio context is not yet running), and
+its `none` never counts: no packets is also what a network drop looks like, and
+the connection's grades already say that. Sound in the page with `silent` at
+the runtime would mean the publish path is broken; that warning is held until
+the runtime's silence floor is set from hardware data and agrees with the
+page's. Once a microphone has failed, a click does not bring it back: it
+leaves `failed` on a sustained sound, or on the runtime hearing it where the
+page cannot.
+
+**The camera is judged by the voice runtime, not the page.** The page does
+not decode its own picture. The voice runtime decodes a keyframe of what reaches it and
+says, under the `voqalize` label, `caller-video`: `ok`, `black` (a closed
+shutter, a covered lens) or `none` (no frames). That becomes
+`cam.signal.server`, with `black` read as `silent`; `cam.signal.local` is
+always `unmeasured`. Black from the start is `failed` with `no-signal`, black
+after a picture is `degraded`, and no frames is `degraded` only while the voice runtime
+still receives the mic and the uplink grades better than `poor`: with neither,
+the network dropped, and a congested uplink drops video before audio. Either
+way the connection says so. No frames offers only `choose-another-device`: a
+picture that never arrives is not a closed shutter. Until the voice runtime says,
+the camera is `live` and unmeasured, which is all an older voice runtime ever gives.
+The voice runtime judges only while the page's camera is on, and judges afresh when it
+comes back on, so the page forgets the verdict when the camera goes off. A
+device switch sends the voice runtime nothing; it looks again every 2 s while the picture
+is black, so a new camera clears the failure without the page's help. A
+virtual camera (the `virtual` trait) that is black has no shutter to open: its
+fixes are `start-camera-app` and `choose-another-device`. A camera another app
+holds is not black; it fails to open, `already-in-use`.
+
+There is no camera verdict before the call. The voice runtime can judge only what reaches
+it, and the owner ruled out the page looking at its own picture ("keep the
+client side lightweight"), so an app that wants to catch a closed shutter on
+its pre-join screen keeps its own preview check. In the call, a closed
+shutter is reported a little over 2 s after the camera switches on: the voice runtime
+needs two dark keyframes 1.5 s apart, so a webcam settling its exposure is
+not told to open a shutter.
+
+**The connection is read from pipecat, not rebuilt.** `trackConnectionHealth`
+wraps, on the transport instance, the members pipecat already drives:
+
+- its `state` accessor, for `connecting`, `ready` and the end of a call;
+- its ICE handler, for a path forming or being lost;
+- `attemptReconnection`, for a rebuild of a call that was up;
+- `handleMessage`, for what the voice runtime reports.
+
+An ICE failure before the call was ever up gives up at once: retrying the same
+network will not form a path. Otherwise the 30 s unreachable timer runs from
+`connecting` or `reconnecting`, and it stops when ICE connects, so a slow agent
+does not count against the network, and it does not run out while the
+browser's permission prompt is open. Giving up disconnects the transport so
+`connect()` rejects rather than retrying for ever.
+
+A 4xx to the offer is not the network: pipecat (1.10.7 and later) stops at
+once, and its `_lastNegotiationError` still holds the response when it sets
+`error`, so the call ends `refused` rather than `unreachable`.
+
+**The runtime's reports have their own label.** The voice runtime sends every page
+`caller-audio`, `caller-video` and `network-quality` under the RTVI label `voqalize` rather
+than `rtvi-ai`. There is no opt-in: pipecat's client hands an app only
+`rtvi-ai` messages, so an older client never sees them, and this one reads
+them ahead of pipecat and drops any `voqalize` message or value it does not
+know. The page sends nothing under the label; anything it ever sends would be
+reviewed as a change to the voice runtime's protocol. The uplink grade is the voice runtime's
+`network-quality`. The downlink grade is this page's own, from `inbound-rtp` loss,
+concealment and jitter. It turns worse at once and better one step at a time.
+
 ## pipecat's transport is bundled, without daily
 
 `@pipecat-ai/small-webrtc-transport` imports `@daily-co/daily-js` at module

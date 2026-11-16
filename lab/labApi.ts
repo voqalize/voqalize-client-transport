@@ -13,6 +13,7 @@
  */
 
 import type { LabCapabilities } from "./labPlatform";
+import type { CallHealth, ScreenPickerHints } from "../src/callHealth";
 import type { RecordedDisplayCall, RecordedGumCall } from "./fakeMediaDevices";
 import type { ScriptKind } from "../src/mediaPlatform";
 import type { AppliedParameters, Lane, LaneStats } from "./loopback";
@@ -89,7 +90,20 @@ export interface LabResetOptions {
   mutedRecoveryMs?: number;
   deviceChangeDebounceMs?: number;
   fallbackToDefaultDevice?: boolean;
+  /**
+   * Tier 1: give the manager the scripted health world (levels, pictures,
+   * permissions) and test-scale health timings. Off, tier 1 measures nothing
+   * and every capture is `live · unmeasured`; tier 2 always measures for real.
+   */
+  scriptedHealth?: boolean;
+  /** With `scriptedHealth`: no audio context, so the page cannot measure its mic — Firefox or Safari before a gesture. */
+  unmeasuredMic?: boolean;
+  userAgent?: string;
+  /** Make the frame's Permissions Policy refuse capture. */
+  framePolicyBlocked?: boolean;
 }
+
+export type HealthPart = "mic" | "cam" | "speaker" | "screen" | "connection";
 
 /**
  * Ordered log of everything the manager announced. Strings, so a body can
@@ -113,7 +127,39 @@ export interface LabApi {
   isSharingScreen(): Promise<boolean>;
   supportsScreenShare(): Promise<boolean>;
   enableCam(enable: boolean): Promise<void>;
-  enableScreenShare(enable: boolean): Promise<void>;
+  enableScreenShare(
+    enable: boolean,
+    hints?: ScreenPickerHints,
+  ): Promise<"started" | "cancelled" | void>;
+  /** The current `CallHealth`, as data. */
+  health(): Promise<CallHealth>;
+  /**
+   * Every change since reset (or `clearHealthLog`), one line per part that
+   * changed: `"mic:starting"`, `"mic:recovering:no-signal"`,
+   * `"mic:failed:blocked:user"`, `"screen:off:user"`, `"mic:live:sound"`.
+   */
+  healthLog(part?: HealthPart): Promise<string[]>;
+  clearHealthLog(): Promise<void>;
+  /** Tier 1 only (capability `scriptedHealth`): what a device hears; `"*"` for every device. */
+  setInputLevel(deviceId: string, level: number): Promise<boolean>;
+  /**
+   * Play the voice runtime's verdict to the manager, as the transport would: `caller-audio`
+   * for the mic, `caller-video` for the camera (`black` as `silent`).
+   */
+  setServerSignal(
+    server: "sound" | "silent" | "none" | "unmeasured",
+    device?: "mic" | "cam",
+  ): Promise<void>;
+  /** Sets the uplink grade, as the connection's watcher would from the voice runtime's report. */
+  setUplink(uplink: "good" | "fair" | "poor" | "bad" | "unknown"): Promise<void>;
+  /** Tier 1 only: add a device, or relabel one with the same id and kind. */
+  addDevice(deviceId: string, kind: MediaDeviceKind, label: string): Promise<boolean>;
+  setPermission(
+    name: "microphone" | "camera",
+    state: "granted" | "denied" | "prompt",
+  ): Promise<boolean>;
+  /** Wait until `healthLog(part)` contains `line`, or fail after `timeoutMs`. */
+  waitForHealth(part: HealthPart, line: string, timeoutMs?: number): Promise<void>;
   updateCam(deviceId: string): Promise<void>;
   getAllMics(): Promise<DeviceSnapshot[]>;
   getAllCams(): Promise<DeviceSnapshot[]>;
